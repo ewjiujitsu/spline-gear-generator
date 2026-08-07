@@ -422,6 +422,9 @@
 
   .status-bar.ok  { border-color: var(--ok);  color: var(--ok); }
   .status-bar.err { border-color: var(--err); color: var(--err); }
+  /* SAVED, but read this. Distinct from both: the file is fine, a value is not
+     what was typed. Amber so it cannot be mistaken for either (07.08.2026). */
+  .status-bar.warn { border-color: var(--accent); color: var(--accent); }
 
   .status-dot {
     width: 6px; height: 6px;
@@ -613,7 +616,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v21 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v22 · SPLINE + GEAR + COATING</div>
   </header>
 
   <div class="main">
@@ -2710,13 +2713,34 @@ function buildGeometry(p) {
 
 // ── READOUT ─────────────────────────────────────────────────────────
 
+// ── ROOT ∅ MOVED? ───────────────────────────────────────────────────
+// SINGLE FILLET holds the RADIUS, so the root ∅ is an output, not an input:
+// one arc tangent to both flanks has a single degree of freedom, and spending
+// it on the radius fixes where the arc sits. Only one radius — the full-fillet
+// radius — happens to land the root on the entered ∅. Every other value moves
+// it, and for an internal spline a SMALLER radius moves it DEEPER.
+// This used to be reported only inside the root-fillet readout line, which is
+// quiet enough to walk straight past: on 07.08.2026 a DXF reached the customer's
+// model with the major ∅ 0.134 out because of it. It is now said out loud, at
+// the moment the file is written. (the author, 07.08.2026.)
+// Returns '' when the root ∅ is exactly what was asked for.
+function rootDiaNote(p, g) {
+  if (!g || !g.singleR || g.rootDiaEff === undefined) return '';
+  if (Math.abs(g.rootDiaEff - p.Droot) <= 5e-4) return '';
+  const bigger = g.rootDiaEff > p.Droot;
+  return `⚠ ROOT ∅ ${fromMM(g.rootDiaEff, 4)}${unitSuffix()} — NOT the ${fromMM(p.Droot, 4)} entered `
+       + `(${bigger ? '+' : ''}${fromMM(g.rootDiaEff - p.Droot, 4)}). SINGLE FILLET sets the root from the radius; `
+       + `use FLAT ROOT + CORNER RADIUS to hold both`;
+}
+
 function updateReadout(p, g) {
   const U = unitSuffix();                     // readouts follow the units switch
   document.getElementById('rd-mod').textContent   =
     g.module.toFixed(5)+' / '+(25.4/g.module).toFixed(3);
   document.getElementById('rd-alpha').textContent = g.alphaDeg.toFixed(4)+'°';
   document.getElementById('rd-rfil').textContent  = (g.singleR
-    ? fromMM(g.rfUsed,3)+' (single fillet · root ∅ '+fromMM(g.rootDiaEff,3)+')'
+    ? fromMM(g.rfUsed,3)+' (single fillet · root ∅ '+fromMM(g.rootDiaEff,4)
+        + (Math.abs(g.rootDiaEff - p.Droot) > 5e-4 ? ' ⚠ NOT the '+fromMM(p.Droot,4)+' entered' : '')+')'
     : g.rootMode === 'flat'
     ? fromMM(g.rfUsed,3)+' (flat root + corner · max '+fromMM(g.rfFull,4)+')'
     : g.fullFillet
@@ -3365,7 +3389,11 @@ function generateDXF() {
         : (p.ofmt === 'splineloop')              ? chainLoops(g.entities).length + ' CLOSED SPLINE'
         : (p.ofmt === 'spline')                  ? (g.nSplines+g.nArcs) + ' SPLINE+ARC'
         :                                          (g.nLines+g.nArcs) + ' LINES+ARCS';
-      setStatus(`✓ SAVED — ${fname} · ${g.internal?'INT':'EXT'} · ${fileEnts} · ${g.fullFillet?'FULL FILLET':'CORNER FILLETS'}`,'ok');
+      // If the single fillet has moved the root ∅ off the entered value, say so HERE —
+      // this is the last moment before the file leaves the tool and lands in CAD.
+      const rootNote = rootDiaNote(p, g);
+      setStatus(`✓ SAVED — ${fname} · ${g.internal?'INT':'EXT'} · ${fileEnts} · ${g.fullFillet?'FULL FILLET':'CORNER FILLETS'}`
+                + (rootNote ? `<br>${rootNote}` : ''), rootNote ? 'warn' : 'ok');
       addFallbackLink(dl,fname);
       histRecord('dxf');
     } catch(e) {
