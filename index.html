@@ -613,7 +613,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v20 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v21 · SPLINE + GEAR + COATING</div>
   </header>
 
   <div class="main">
@@ -978,6 +978,16 @@
               <div class="field-label" id="lbl-start">Start angle — CW from 12 o'clock <span class="unit">[°]</span></div>
               <div class="field-name" id="nm-start">θ₀ · 0 = gap ⌖ top</div>
               <input type="text" inputmode="decimal" id="start" value="0" step="0.001" oninput="onChange()">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field field-wide">
+              <div class="field-label">At 12 o'clock — what the start angle references <span class="unit">[-]</span></div>
+              <select id="clock12" onchange="onClock12Change()">
+                <option value="auto" selected>AUTO — gap at top (internal) · tooth at top (external)</option>
+                <option value="gap">GAP ⌖ at 12 o'clock — either type</option>
+                <option value="tooth">TOOTH ⌖ at 12 o'clock — either type</option>
+              </select>
             </div>
           </div>
         </div>
@@ -1663,11 +1673,19 @@ function getParams() {
   // The geometry engine's internal `start` is unchanged: it is the SPACE-centreline
   // angle measured CCW from +x (3 o'clock). Convert here:
   //   math angle of the reference feature = 90 − startCW   (CCW-from-+x; +CW lowers it)
-  //   internal: feature IS the space CL          → start = 90 − startCW
-  //   external: feature is the tooth CL = space CL + half-pitch → start = (90 − startCW) − 180/z
+  // WHICH feature that is used to be decided by the spline type. It is now the author's
+  // choice (07.08.2026) — knowing that internal means gap-at-top and external means
+  // tooth-at-top is exactly the kind of thing you should not have to remember, and
+  // getting it wrong is only visible once the DXF is in CAD. Stated plainly:
+  //   GAP   at 12 → the SPACE centreline is at 12 → start = 90 − startCW
+  //   TOOTH at 12 → the space CL is half a pitch away → start = (90 − startCW) − 180/z
+  // AUTO keeps the old type-driven behaviour, so every part made before this toggle
+  // existed still builds byte-identically.
+  const clock12 = document.getElementById('clock12').value;            // auto | gap | tooth
+  const want12  = clock12 === 'auto' ? (stype === 'external' ? 'tooth' : 'gap') : clock12;
   const startCW = evalNum(document.getElementById('start').value) || 0;
   let start = 90 - startCW;
-  if (stype === 'external' && zBuild > 0) start -= 180 / zBuild;   // half-pitch of the BUILD count
+  if (want12 === 'tooth' && zBuild > 0) start -= 180 / zBuild;    // half-pitch of the BUILD count
   // ONE MISSING GAP — which space index is the uncut one? Space centrelines sit at
   // start + i·360/z (CCW from +x) for BOTH internal and external (`start` is always
   // the space CL; the external half-pitch shift above is already folded in). The
@@ -1799,6 +1817,8 @@ function getParams() {
     nsegs: Math.round(evalNum(document.getElementById('nsegs').value)),
     start,                                                      // SPACE-CL angle, CCW from +x (engine units)
     startCW,                                                    // raw user input (CW from 12 o'clock) — for report
+    clock12,                                                    // auto | gap | tooth — as chosen
+    want12,                                                     // gap | tooth — what AUTO resolved to
     DForm: evalNum(document.getElementById('DForm').value) * UF || 0,  // ext involute floor (form ∅); 0 = auto
     allow: evalNum(document.getElementById('allow').value) * UF || 0,  // soft-stage allowance a: added to base tangent W AND root ∅ (machinist convention; = 2q per face)
     spank: Math.round(evalNum(document.getElementById('spank').value)) || 0,    // base-tangent span teeth k; 0/blank = auto
@@ -2084,7 +2104,6 @@ function onTypeChange() {
     set('rdk-soft',     'Soft stage — between pins mid');
     set('lbl-teff',  'Min. effective space width — GO gauge <span class="unit">[mm]</span>');
     set('nm-teff',   'e_v min · blank = use actual mini');
-    set('nm-start',  'θ₀ · 0 = gap ⌖ top');
   } else {
     set('lbl-dtip',  'Major diameter (tooth tips) <span class="unit">[mm]</span>');
     set('nm-dtip',   'Do');
@@ -2107,10 +2126,33 @@ function onTypeChange() {
     set('rdk-soft',     'Soft stage — over pins mid');
     set('lbl-teff',  'Max. effective tooth thickness — GO gauge <span class="unit">[mm]</span>');
     set('nm-teff',   's_v max · blank = use actual maxi');
-    set('nm-start',  'θ₀ · 0 = tooth ⌖ top');
   }
+  syncClock12Label();   // the start-angle hint follows the TOGGLE now, not the type
   onChange(true);
 }
+
+// The badge is the ONE place the version is written. The printed report used to
+// carry its own hardcoded copy, which went stale the moment the badge was bumped
+// and put a wrong version stamp on a document that goes to the machinist. Read it
+// from the badge instead, the same way the history log already does (07.08.2026).
+function toolVersion() {
+  const el = document.querySelector('.header-badge');
+  const txt = el ? el.textContent.trim() : '';
+  return txt.split('·')[0].trim() || 'KAIZEN TOOL';
+}
+
+// The sub-label under the start angle names the feature the angle references.
+// It reads off the toggle, and spells out what AUTO resolved to so the type-driven
+// default is never a hidden assumption.
+function syncClock12Label() {
+  const el = document.getElementById('nm-start');
+  if (!el) return;
+  const sel  = document.getElementById('clock12').value;
+  const type = document.getElementById('stype').value;
+  const what = sel === 'auto' ? (type === 'external' ? 'tooth' : 'gap') : sel;
+  el.textContent = 'θ₀ · 0 = ' + what + ' ⌖ top' + (sel === 'auto' ? ' (auto)' : '');
+}
+function onClock12Change() { syncClock12Label(); onChange(true); }
 
 // ── GEOMETRY ────────────────────────────────────────────────────────
 
@@ -4432,7 +4474,7 @@ function buildReportHTML(p, g, imgData) {
     <h1>${p.gear ? (p.gear.betaDeg > 0 ? 'HELICAL' : 'SPUR') + ' GEAR PROFILE REPORT (TRANSVERSE SECTION)' : (g.internal ? 'INTERNAL' : 'EXTERNAL') + ' SPLINE PROFILE REPORT'}</h1>
     <div class="sub">${p.gear
       ? 'mn ' + p.gear.mn + ' · αn ' + p.gear.anDeg + '° · β ' + p.gear.betaDeg + '°' + (p.gear.betaDeg > 0 ? ' ' + p.gear.hand + ' · lead ' + p.gear.lead.toFixed(2) + ' mm' : ' (spur)') + ' · DXF = transverse section'
-      : 'ANSI B92.1 / ISO 4156 · Fillet root · Side fit · ' + (g.internal ? 'Internal' : 'External')}  · KAIZEN TOOL v19 · <b>DIMS IN ${inch ? 'INCH' : 'MM'}</b></div>
+      : 'ANSI B92.1 / ISO 4156 · Fillet root · Side fit · ' + (g.internal ? 'Internal' : 'External')} · ${toolVersion()} · <b>DIMS IN ${inch ? 'INCH' : 'MM'}</b></div>
   </div>
   <div class="sub" style="text-align:right">FILE: <b>${fname}</b><br>GENERATED: ${dstr}</div>
 </div>
@@ -4461,7 +4503,7 @@ function buildReportHTML(p, g, imgData) {
   <tr><td>Root fillet input</td><td class="num">${p.rfil > 0 ? L(p.rfil,3)+' '+UN : '0 (auto)'}</td></tr>
   <tr><td>Tooth tip ${p.tipType === 'chamfer' ? 'chamfer (× 45°)' : 'corner radius'}</td><td class="num">${p.rtip > 0 ? L(p.rtip,3)+' '+UN : '0 (sharp)'}</td></tr>
   <tr><td>Flank segments / side</td><td class="num">${p.nsegs}</td></tr>
-  <tr><td>Start angle (CW from 12 o'clock)</td><td class="num">${p.startCW}° · 0 = ${g.internal ? 'gap' : 'tooth'} ⌖ top</td></tr>
+  <tr><td>Start angle (CW from 12 o'clock)</td><td class="num">${p.startCW}° · 0 = ${p.want12} ⌖ top${p.clock12 === 'auto' ? ' (auto)' : ' (set)'}</td></tr>
   ${p.oneAny ? `<tr><td>Missing ${p.oneGap ? 'GAP — space left UNCUT' : 'TOOTH — cut away to root ∅'}</td><td class="num">index ${p.missIdx} of ${p.z} · ⌖ at ${p.missCW.toFixed(3)}° CW from 12</td></tr>` : ''}
   ${p.coatOn ? `<tr><td>Coating (per surface) mini / maxi</td><td class="num">${L(p.coatMin,4)} / ${L(p.coatMax,4)} ${UN}</td></tr>
   <tr><td>Coating mean c̄ · on any ∅ 2c̄</td><td class="num">${L((p.coatMin+p.coatMax)/2,4)} · ${L(p.coatMin+p.coatMax,4)} ${UN}</td></tr>
@@ -4538,7 +4580,7 @@ function generateReport() {
 // ── PERSISTENCE (remember last entered values) ──────────────────────
 const STORE_KEY = 'splineGenV7';
 const FIELD_IDS = ['partno','fname','fname_auto','stype','sizemode','anchor','z','module','D','alpha','Db','Dtip','Droot',
-                   'DForm','smax','smin','mmax','mmin','rfil','rtip','nsegs','start','pin','allow','spank','tunit','teff','gclr','mtpat','rootmode','tiptype',
+                   'DForm','smax','smin','mmax','mmin','rfil','rtip','nsegs','start','clock12','pin','allow','spank','tunit','teff','gclr','mtpat','rootmode','tiptype',
                    'Dtip_mode','Dtip_let','Dtip_gr','Droot_mode','Droot_let','Droot_gr',
                    'Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
                    'ptype','beta','hand','xn','ganchor',
