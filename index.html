@@ -540,6 +540,26 @@
     flex-shrink: 0;
   }
 
+  /* ↺ — put the name back to the one derived from the part number + spline data.
+     Lit when the name has been typed over, dim while it is still following. */
+  .filename-reset {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1;
+    padding: 10px 13px;
+    margin: 0;
+    width: auto;
+    background: var(--bg2);
+    border: none;
+    border-left: var(--grid);
+    color: var(--text3);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .filename-reset:hover { color: var(--accent); }
+  .filename-reset.edited { color: var(--accent); }
+
   /* ── CROSSHAIR CORNER DECORATIONS ── */
   .corner-tl, .corner-tr, .corner-bl, .corner-br {
     position: absolute;
@@ -593,7 +613,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v19 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v20 · SPLINE + GEAR + COATING</div>
   </header>
 
   <div class="main">
@@ -607,11 +627,24 @@
           <span class="section-number">01</span>
           <span class="section-title">Output File</span>
         </div>
+        <div class="field-row">
+          <div class="field field-wide">
+            <div class="field-label">Part number — names the file and labels the history entry <span class="unit">[text]</span></div>
+            <div class="field-name">e.g. ABC-1234-A</div>
+            <input type="text" id="partno" value="" placeholder="(optional)" spellcheck="false" oninput="onPartNoChange()">
+          </div>
+        </div>
         <div class="filename-row">
           <span class="filename-prefix">FILE://</span>
-          <input class="filename-input" id="fname" type="text" value="spline" spellcheck="false" oninput="onChange()">
+          <input class="filename-input" id="fname" type="text" value="spline" spellcheck="false" oninput="onFnameEdit()">
           <span class="filename-ext">.dxf</span>
+          <button class="filename-reset" id="fname-reset" type="button" onclick="resetFname()">↺</button>
         </div>
+        <!-- Is the file name still FOLLOWING the part data, or has it been typed over?
+             A hidden field rather than a JS variable so it rides along in FIELD_IDS —
+             saved with the session and stored with every history entry, which is what
+             lets LOAD put a hand-typed name back exactly as it was. -->
+        <input type="hidden" id="fname_auto" value="1">
         <div class="field-row">
           <div class="field field-wide">
             <div class="field-label">DXF output <span class="unit">[format]</span></div>
@@ -872,27 +905,29 @@
             </div>
           </div>
           <div class="field-row">
-            <div class="field">
-              <div class="field-label" id="lbl-smax">Act. space width, maxi <span class="unit">[mm]</span></div>
-              <div class="field-name" id="nm-smax">s max (at pitch ∅)</div>
-              <input type="text" inputmode="decimal" id="smax" value="3.2" min="0.001" step="0.0001" oninput="onChange()">
-            </div>
+            <!-- Read order is LOWEST → HIGHEST across the whole section (07.08.2026),
+                 matching the tip/root limits rows: mini on the left, maxi on the right. -->
             <div class="field">
               <div class="field-label" id="lbl-smin">Act. space width, mini <span class="unit">[mm]</span></div>
               <div class="field-name" id="nm-smin">s min (at pitch ∅)</div>
               <input type="text" inputmode="decimal" id="smin" value="3.16" min="0.001" step="0.0001" oninput="onChange()">
             </div>
+            <div class="field">
+              <div class="field-label" id="lbl-smax">Act. space width, maxi <span class="unit">[mm]</span></div>
+              <div class="field-name" id="nm-smax">s max (at pitch ∅)</div>
+              <input type="text" inputmode="decimal" id="smax" value="3.2" min="0.001" step="0.0001" oninput="onChange()">
+            </div>
           </div>
           <div class="field-row tri" id="row-meas">
-            <div class="field">
-              <div class="field-label" id="lbl-mmax">Between pins, maxi <span class="unit">[mm]</span></div>
-              <div class="field-name" id="nm-mmax">M max / pin ∅</div>
-              <input type="text" inputmode="decimal" id="mmax" value="43.9" min="0.001" step="0.0001" oninput="onChange()">
-            </div>
             <div class="field">
               <div class="field-label" id="lbl-mmin">Between pins, mini <span class="unit">[mm]</span></div>
               <div class="field-name" id="nm-mmin">M min / pin ∅</div>
               <input type="text" inputmode="decimal" id="mmin" value="43.86" min="0.001" step="0.0001" oninput="onChange()">
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-mmax">Between pins, maxi <span class="unit">[mm]</span></div>
+              <div class="field-name" id="nm-mmax">M max / pin ∅</div>
+              <input type="text" inputmode="decimal" id="mmax" value="43.9" min="0.001" step="0.0001" oninput="onChange()">
             </div>
             <!-- The pin the two measurements above are taken with — kept beside them,
                  NOT greyed with them: it is used in both anchor modes (06.08.2026) -->
@@ -1083,10 +1118,12 @@
         </div>
         <div class="fields">
           <div class="field-row">
-            <div class="field">
-              <div class="field-label">Part name / number — labels the entry <span class="unit">[text]</span></div>
-              <div class="field-name">e.g. input shaft hub, op 30</div>
-              <input type="text" id="hist_name" value="" placeholder="(optional)">
+            <!-- Follows the file name in section 01 rather than being typed again here
+                 (07.08.2026) — one place to name a part, not two that can disagree. -->
+            <div class="field derived">
+              <div class="field-label">Part name / number — labels the entry <span class="unit">[= file name]</span></div>
+              <div class="field-name">from section 01</div>
+              <input type="text" id="hist_name" value="" readonly tabindex="-1">
             </div>
             <div class="field">
               <div class="field-label">Note — why / for whom / which op <span class="unit">[text]</span></div>
@@ -2732,7 +2769,72 @@ function syncDerived(p) {
   }
 }
 
+// ── FILE NAME — derived from the part number + the spline/gear data ──
+// the author, 07.08.2026: the name becomes part number + a description of the spline
+// (teeth + size + pressure angle), stays EDITABLE, and ↺ puts it back.
+// fname_auto is a hidden FIELD_ID, not a JS variable, so the follow/typed-over
+// state is saved with the session and stored with every history entry — that is
+// what lets LOAD restore a hand-typed name exactly rather than recomputing over it.
+function fnameIsAuto()      { return document.getElementById('fname_auto').value !== '0'; }
+function setFnameAuto(on) {
+  document.getElementById('fname_auto').value = on ? '1' : '0';
+  const b = document.getElementById('fname-reset');
+  if (b) {
+    b.classList.toggle('edited', !on);
+    b.title = on ? 'Name is following the part number and the spline data'
+                 : 'Typed over — click to rebuild it from the part number and the spline data';
+  }
+}
+// Windows-illegal characters stripped; everything else left as typed, so a part
+// number keeps the punctuation the drawing actually uses (ABC-1234-A stays as is).
+function autoFname() {
+  const val  = id => { const el = document.getElementById(id); return el ? (el.value || '').trim() : ''; };
+  const num  = id => { const n = evalNum(val(id)); return isNaN(n) ? null : n; };
+  const tok  = n  => String(Number(n.toFixed(4)));      // 2.50 → 2.5, 47.0 → 47
+  const bits = [];
+
+  const pn = val('partno').replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '-');
+  if (pn) bits.push(pn);
+
+  const z = num('z');           if (z !== null) bits.push('z' + tok(z));
+
+  // MODULE in every mode except DP — the solver keeps the module field in step even
+  // when D & Db are the typed inputs, so the name says what the author asked for (teeth +
+  // module + pressure angle) rather than echoing back a pitch ∅. Pitch ∅ is the
+  // fallback only if the module is somehow unavailable.
+  const sm = val('sizemode'), m = num('module');
+  if      (sm === 'dp' && m !== null) bits.push('DP' + tok(m));
+  else if (m !== null)                bits.push('m'  + tok(m));
+  else { const D = num('D'); if (D !== null) bits.push('D' + tok(D)); }
+
+  const a = num('alpha');       if (a !== null) bits.push('PA' + tok(a));
+
+  // Helix only in GEAR mode, and only when it is actually helical (the author's call).
+  if (val('ptype') === 'gear') { const b = num('beta'); if (b) bits.push('B' + tok(b)); }
+
+  if (isInch()) bits.push('IN');                        // the numbers above are inches
+
+  return bits.length ? bits.join('_') : 'spline';
+}
+function applyAutoFname() {
+  if (!fnameIsAuto()) return;
+  const el = document.getElementById('fname');
+  const nv = autoFname();
+  if (el.value !== nv) el.value = nv;
+}
+// The history label is the file name — kept in step here so there is no second
+// place to type a part name and no way for the two to disagree.
+function syncHistName() {
+  const el = document.getElementById('hist_name');
+  if (el) el.value = (document.getElementById('fname').value || '').trim();
+}
+function onPartNoChange() { applyAutoFname(); onChange(); }
+function onFnameEdit()    { setFnameAuto(false); onChange(); }   // typed over — stop steering it
+function resetFname()     { setFnameAuto(true); applyAutoFname(); onChange(true); }
+
 function recompute() {
+  applyAutoFname();   // derived name first — saveState must store the name it settles on
+  syncHistName();
   saveState();
   showResolvedDims();
   const p=getParams();
@@ -4435,7 +4537,7 @@ function generateReport() {
 
 // ── PERSISTENCE (remember last entered values) ──────────────────────
 const STORE_KEY = 'splineGenV7';
-const FIELD_IDS = ['fname','stype','sizemode','anchor','z','module','D','alpha','Db','Dtip','Droot',
+const FIELD_IDS = ['partno','fname','fname_auto','stype','sizemode','anchor','z','module','D','alpha','Db','Dtip','Droot',
                    'DForm','smax','smin','mmax','mmin','rfil','rtip','nsegs','start','pin','allow','spank','tunit','teff','gclr','mtpat','rootmode','tiptype',
                    'Dtip_mode','Dtip_let','Dtip_gr','Droot_mode','Droot_let','Droot_gr',
                    'Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
@@ -4497,6 +4599,7 @@ function histRecord(kind, announce) {
   const print = histPrint(f);
   const list  = histLoad();
   const now   = new Date().toISOString();
+  syncHistName();                          // label = the file name, never a stale one
   const name  = (document.getElementById('hist_name').value || '').trim();
   const note  = (document.getElementById('hist_note').value || '').trim();
   const hit   = list.find(e => e.print === print);
@@ -4551,7 +4654,11 @@ function histRestore(id) {
   // onUnitChange cannot convert the restored numbers a second time on the way in.
   if (e.fields.tunit) { document.getElementById('tunit').value = e.fields.tunit; _lastUnit = e.fields.tunit; }
   Object.entries(e.fields).forEach(([k, v]) => { const el = document.getElementById(k); if (el) el.value = v; });
-  document.getElementById('hist_name').value = e.name || '';
+  // An entry logged before v20 has no fname_auto — its name was typed by hand, so
+  // treat it as MANUAL. Anything else would recompute over the stored name and break
+  // the guarantee that LOAD reproduces the entry exactly.
+  setFnameAuto(e.fields.fname_auto === undefined ? false : e.fields.fname_auto !== '0');
+  syncHistName();
   document.getElementById('hist_note').value = e.note || '';
   // Re-run the full relabel/enable chain so every derived state matches the values.
   ['Dtip','Droot'].forEach(id => onDiaModeChange(id, true));
@@ -4682,6 +4789,7 @@ onAnchorChange();   // sync the enabled/disabled state, then onChange()
 onPatChange();      // sync the missing-feature position field to the restored pattern
 onRootModeChange(); // sync the root fillet field to the restored root style
 onCoatChange();     // sync the coating section + its output buttons
+setFnameAuto(fnameIsAuto());   // light the ↺ button to match the restored follow/typed state
 histRender();       // draw the generated-parts log
 initLimOrder();     // rebuild the limits-row typed-pair bookkeeping from restored values
 onPartTypeChange(); // SPLINE/GEAR — re-runs the chain + gear relabels, LAST so it wins
