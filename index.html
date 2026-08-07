@@ -1107,10 +1107,14 @@
                 tangent by <b>&Delta;W = 2c</b>; at the pitch &empty; the s/t band moves 2c/cos&nbsp;&alpha;p.
                 Flanks, root &empty; AND tip &empty; are all treated as coated.<br>
                 <b>The two stages do NOT share a tolerance band.</b> Because c varies, the
-                PRE-coating band is <b>narrower</b> than the drawing band by 2&times;(c maxi &minus; c mini)
-                &mdash; that is what guarantees the finished part is in tolerance for ANY coating
-                thickness in spec. If the coating variation eats the whole band, the two specs are
-                incompatible and the tool says so instead of quietly clamping.<br>
+                PRE-coating band is <b>narrower</b> than the drawing band by
+                2&times;(c maxi &minus; c mini)/cos&nbsp;&alpha;p &mdash; that is what guarantees the
+                finished part is in tolerance for ANY coating thickness in spec.
+                Each pre limit is paired with the coating extreme that works AGAINST it:
+                pre <b>maxi</b> assumes the <b>thinnest</b> coating, pre <b>mini</b> assumes the
+                <b>thickest</b>. So a part anywhere in the pre band, given any coating in spec,
+                lands inside the drawing band. If the coating variation eats the whole band, the two
+                specs are incompatible and the tool says so instead of quietly clamping.<br>
                 Geometry is cut at the MID of each stage's own band (= drawing mid &minus;/+ 2c&#772;).
                 The tooth-tip BREAK (radius/chamfer) is carried across unchanged &mdash; it is an edge
                 break, not a functional dimension, and a coated sharp corner is not well defined.
@@ -3469,10 +3473,18 @@ function coatParams(p, gFin, target) {
   cp.smax = fwd ? gFin.swMax + T.hi : gFin.swMax - T.hi;
   cp.smin = fwd ? gFin.swMin + T.lo : gFin.swMin - T.lo;
   cp.mmax = NaN; cp.mmin = NaN;
-  if (cp.smin > cp.smax)
-    throw new Error('coating: the coating variation (' + (2 * (p.coatMax - p.coatMin)).toFixed(4) +
-                    ') is wider than the ' + (p.stype !== 'external' ? 'space width' : 'tooth thickness') +
-                    ' band — the coating spec and the spline tolerance cannot both be met');
+  if (cp.smin > cp.smax) {
+    // Quote the number the CHECK actually uses. It was previously written out as
+    // 2(c max − c min), which omits the 1/cos αp the band shift carries — so the
+    // message quoted a figure smaller than the band it called too small, and read
+    // as nonsense. Derived from T here, so it cannot drift from the check again.
+    const eats = T.hi - T.lo;                      // = 2(c max − c min)/cos αp
+    const band = gFin.swMax - gFin.swMin;
+    throw new Error('coating: the coating variation eats ' + eats.toFixed(4) +
+                    ' of the ' + (p.stype !== 'external' ? 'space width' : 'tooth thickness') +
+                    ' band (' + band.toFixed(4) + ') — the coating spec and the spline tolerance ' +
+                    'cannot both be met. Tighten the coating range or open the spline tolerance.');
+  }
   if (cp.smin <= 0)
     throw new Error('coating: ' + (p.stype !== 'external' ? 'space width' : 'tooth thickness') +
                     ' ≤ 0 — coating too thick');
