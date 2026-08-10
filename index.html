@@ -616,7 +616,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v24 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v25 · SPLINE + GEAR + COATING</div>
   </header>
 
   <div class="main">
@@ -4484,7 +4484,15 @@ function buildReportHTML(p, g, imgData) {
   // Report follows the selected display unit (Section 01 "Table units"):
   // mm = original precisions · inch = linear dims ÷25.4 at 4 dp. Calc stays mm.
   const inch = p.tunit === 'inch';
-  const L = (v, dp) => inch ? (v/25.4).toFixed(4) : v.toFixed(dp);
+  // REPORT PRECISION (10.08.2026): every LINEAR value prints at one fixed
+  // precision — 3 dp in mm, 4 dp in inch — so the columns line up and the sheet
+  // reads like a drawing instead of a calculator dump. The per-call dp argument
+  // is left at the call sites but no longer varies the output; the DXF and the
+  // engine are unaffected, this is display only.
+  // NOT covered, deliberately: angles (degrees, not a length) and the module /
+  // diametral-pitch pair, which stays at 5 dp — rounding the module to 1.058
+  // would make its own DP derivation read 24.008 instead of 24.000.
+  const L = (v, dp) => inch ? (v/25.4).toFixed(4) : v.toFixed(3);
   const UN = inch ? 'in' : 'mm';
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
@@ -4561,6 +4569,16 @@ function buildReportHTML(p, g, imgData) {
     return txtRow(label, has(inp) ? inp.toFixed(dp) + '°' : '—',
                          has(cmp) ? cmp.toFixed(dp) + '°' : '—', '—', dev);
   };
+  // SOLVED row — the value was derived by the tool, so there is no independent
+  // input to compare it against and the deviation stays blank. The TOLERANCE is
+  // still real and still worth printing: it is the band that falls out of the
+  // OTHER measurement's drawing limits. For a spline anchored on space width
+  // that means the between-pins band implied by s max / s min — which is exactly
+  // the range an inspector needs over the pins to accept the drawing's tooth
+  // thickness. (the author, 10.08.2026.)
+  const solvedRow = (label, cmp, band) =>
+    txtRow(label, '—', has(cmp) ? L(cmp) : '—',
+           band ? `${L(band.bot)} … ${L(band.top)}` : '—', '—');
   const secRow = t => `<tr class="sec"><td colspan="5">${t}</td></tr>`;
 
   const tipName  = g.internal ? 'Minor ∅ Di (tips)'  : 'Major ∅ Do (tips)';
@@ -4611,11 +4629,11 @@ function buildReportHTML(p, g, imgData) {
            p.anchor === 'pins' ? (g.internal ? 'between' : 'over') + '-pins meas.'
                                : (g.internal ? 'space width' : 'tooth thickness'), '—'),
     swSolved
-      ? txtRow(`Act. ${swName} (solved)`, '—', has(g.swMid) ? L(g.swMid, 4) : '—')
+      ? solvedRow(`Act. ${swName} (solved)`, g.swMid, bandOf(g.swMax, g.swMin))
       : chkRow(`Act. ${swName}`, midOf(swBand), g.swMid, swBand, 4),
     pinsSolved
-      ? txtRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)} (solved)`,
-               '—', has(g.pinM) ? L(g.pinM, 4) : '—')
+      ? solvedRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)} (solved)`,
+                  g.pinM, bandOf(g.pinMmax, g.pinMmin))
       : chkRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)}`,
                midOf(pinBand), g.pinM, pinBand, 4),
     bt ? chkRow(`Base tangent W over ${bt.k} teeth`, midOf(rawBand), bt.mid, rawBand, 4) : '',
@@ -4731,6 +4749,10 @@ function buildReportHTML(p, g, imgData) {
   and the entered value when it is not. A zero is a confirmation that the value landed where it
   was asked to; <b class="badinline">a red row means the computed value falls outside its tolerance band</b>.
   Values with a single entered limit have no band and are never coloured.
+  A row marked (solved) was derived by the generator from the other measurement, so it has no
+  independent input and no deviation — but its TOLERANCE is real: it is the band implied by the
+  other measurement's drawing limits, and it is the range to work to when inspecting that feature.
+  All dimensions to ${inch ? '4 decimal places (inch)' : '3 decimal places (mm)'}.
 </div>
 
 <h2>Inspection check — dimension ${g.internal ? 'between' : 'over'} pins</h2>
