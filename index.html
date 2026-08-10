@@ -4764,7 +4764,7 @@ function buildReportHTML(p, g, imgData) {
 </table>
 
 <div class="img-wrap">${imgData ? `<img src="${imgData}" alt="profile preview">` : ''}</div>
-<div class="cap">Generated profile — z=${p.z} · ${g.internal?'Di':'Do'}=${p.Dtip} · ${g.internal?'Dri':'Dre'}=${p.Droot} · ${g.fullFillet ? 'single full root fillet' : 'corner fillets + root arc'}</div>
+<div class="cap">Generated profile — z=${p.z} · ${g.internal?'Di':'Do'}=${L(p.Dtip)} · ${g.internal?'Dri':'Dre'}=${L(p.Droot)} · ${g.fullFillet ? 'single full root fillet' : 'corner fillets + root arc'}</div>
 
 <div class="note">
   CONSTRUCTION: involute flanks of base ∅ ${L(p.Db,5)} ${UN} positioned at MID actual ${g.internal ? 'space width' : 'tooth thickness'};
