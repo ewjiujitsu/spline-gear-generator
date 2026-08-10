@@ -616,7 +616,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v22 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v23 · SPLINE + GEAR + COATING</div>
   </header>
 
   <div class="main">
@@ -1799,6 +1799,9 @@ function getParams() {
     DtipBand:  (B => ({ mid: B.mid * UF, top: B.top * UF, bot: B.bot * UF }))(resolveDimBand('Dtip')),   // [mm]; top/bot NaN when no band
     DrootBand: (B => ({ mid: B.mid * UF, top: B.top * UF, bot: B.bot * UF }))(resolveDimBand('Droot')),  // tables print the limits when known
     smax: smaxOut, smin: sminOut,
+    smaxRaw: smax, sminRaw: smin,                               // AS TYPED [mm], before the alternate/gear transform —
+                                                                // the report's input column must show what was entered,
+                                                                // not what the engine derived from it (10.08.2026)
     mmax, mmin,                                                 // over/between pins maxi/mini [mm]
     get sw() { return (this.smax + this.smin) / 2; },           // geometry is cut at MID limit
     // AUTO NEUTRALISES r (06.08.2026). The input is greyed in AUTO, so the
@@ -4475,18 +4478,178 @@ function buildReportHTML(p, g, imgData) {
   const dstr = `${pad(now.getDate())}.${pad(now.getMonth()+1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
   const fname = p.fname.endsWith('.dxf') ? p.fname : p.fname + '.dxf';
   const cp = Math.PI * p.D / p.z;
-  const rootDesc = g.fullFillet
-    ? `${L(g.rfUsed,5)} — AUTO full fillet, tangent to both flanks and major ∅${g.rfClamped ? ' (manual input clamped)' : ''}`
-    : `${L(g.rfUsed,3)} — manual corner fillets + major arc (max full fillet ${L(g.rfFull,4)})`;
+  // SINGLE FILLET sets fullFillet TRUE as well, so testing fullFillet alone called a
+  // single fillet an "AUTO full fillet" — the wrong label on the one mode where the
+  // root ∅ is an OUTPUT, printed right beside the row that says the root moved.
+  // Also: the root is the MAJOR ∅ only on an internal spline (10.08.2026).
+  // Kept short: the column is now ~17% of the page, and the detail these strings
+  // used to carry has its own rows (max full-fillet radius) or lives in the
+  // construction note at the foot of the report.
+  const rootDesc = g.singleR
+    ? `${L(g.rfUsed,5)} — SINGLE fillet; root ∅ follows r`
+    : g.fullFillet
+    ? `${L(g.rfUsed,5)} — AUTO full fillet${g.rfClamped ? ' (input clamped)' : ''}`
+    : `${L(g.rfUsed,3)} — corner fillets + root arc`;
   const pinRow = (label, val) => val !== null
     ? `<tr><td>${label}</td><td class="num">${L(val,4)} / ${L(p.pin,3)}</td><td class="blank"></td><td class="blank"></td></tr>`
     : `<tr><td>${label}</td><td class="num">—</td><td class="blank"></td><td class="blank"></td></tr>`;
+
+  // ── DATA CHECK TABLE (10.08.2026) ─────────────────────────────
+  // The report used to show INPUT and COMPUTED as two separate lists side by
+  // side, with different rows in each — so nothing could be compared across.
+  // They are now ONE table, a row per quantity: what was entered, what the built
+  // geometry actually carries, the tolerance, and the deviation.
+  // THE TARGET the deviation is measured from is the MID limit where a band
+  // exists and the entered value where it does not. Those are the same thing:
+  // in both cases it is the value the engine was asked to cut, so the column
+  // reads identically on every row.
+  // MOST ROWS ARE ZERO BY CONSTRUCTION, and that is the point — the column is a
+  // confirmation that everything landed, so the one row that moves stands out.
+  // The rows that CAN move: the root ∅ in SINGLE FILLET mode, where the root is
+  // an output rather than an input (07.08.2026 — a DXF reached a customer model
+  // 0.134 oversize exactly this way), and the pin measurement when the flank is
+  // anchored on width, which is then an independent check against sheet limits.
+  const has    = v => v !== null && v !== undefined && !(typeof v === 'number' && isNaN(v));
+  const bandOf = (a, b) => (has(a) && has(b)) ? { top: Math.max(a, b), bot: Math.min(a, b) } : null;
+  const midOf  = bd => bd ? (bd.top + bd.bot) / 2 : null;
+  const sgn    = (d, txt) => (d > 5e-7 ? '+' : '') + txt;
+  // Linear quantity — held in mm, printed through L() so it follows the unit switch.
+  const chkRow = (label, inp, cmp, band, dp) => {
+    // A single typed value is mirrored into both limits (see getParams), which
+    // makes a ZERO-WIDTH band. That is not a tolerance, and red-flagging every
+    // part where only one value was on the sheet would train the eye to ignore
+    // the colour. Show the deviation, never colour it.
+    const real = !!band && (band.top - band.bot) > 1e-9;
+    const tgt  = band ? midOf(band) : (has(inp) ? inp : null);
+    let tol = '—', dev = '—', bad = false;
+    if (band) tol = `${L(band.bot, dp)} … ${L(band.top, dp)}`;
+    if (has(cmp) && has(tgt)) {
+      const d = cmp - tgt;
+      dev = sgn(d, L(Math.abs(d) < 5e-7 ? 0 : d, dp));
+      bad = real && (cmp > band.top + 5e-7 || cmp < band.bot - 5e-7);
+    }
+    return `<tr${bad ? ' class="bad"' : ''}><td>${label}</td>`
+         + `<td class="num">${has(inp) ? L(inp, dp) : '—'}</td>`
+         + `<td class="num">${has(cmp) ? L(cmp, dp) : '—'}</td>`
+         + `<td class="num">${tol}</td>`
+         + `<td class="num">${bad ? '⚠ ' : ''}${dev}</td></tr>`;
+  };
+  // Verbatim row — counts, mode names, anything that is not a length.
+  const txtRow = (label, inp, cmp, tol, dev) =>
+    `<tr><td>${label}</td><td class="num">${inp}</td><td class="num">${cmp}</td>`
+    + `<td class="num">${tol || '—'}</td><td class="num">${dev || '—'}</td></tr>`;
+  // Angle row — same deviation logic, degrees, never unit-converted.
+  const degRow = (label, inp, cmp, dp) => {
+    let dev = '—';
+    if (has(inp) && has(cmp)) {
+      const d = cmp - inp;
+      dev = sgn(d, (Math.abs(d) < 5e-7 ? 0 : d).toFixed(dp)) + '°';
+    }
+    return txtRow(label, has(inp) ? inp.toFixed(dp) + '°' : '—',
+                         has(cmp) ? cmp.toFixed(dp) + '°' : '—', '—', dev);
+  };
+  const secRow = t => `<tr class="sec"><td colspan="5">${t}</td></tr>`;
+
+  const tipName  = g.internal ? 'Minor ∅ Di (tips)'  : 'Major ∅ Do (tips)';
+  const rootName = g.internal ? 'Major ∅ Dri (root)' : 'Minor ∅ Dre (root)';
+  const tipBuilt = g.internal ? 2 * g.ri : 2 * g.ro;   // tip ∅ is used exactly as entered
+  const swName   = g.internal ? 'space width s' : 'tooth thickness t';
+  const swBand   = bandOf(p.smax, p.smin);
+  const pinBand  = bandOf(p.mmax, p.mmin);
+  const rawBand  = bandOf(p.smaxRaw, p.sminRaw);
+  const bt       = (p.gear && p.gear.ganchor === 'span' && !g.internal)
+                     ? baseTangent(p, g, p.gear.k) : null;
+  const entTxt   = p.ofmt === 'splineloop' ? '1 closed spline (whole profile)'
+                 : p.ofmt === 'spline'     ? (g.nSplines+g.nArcs)+' ('+g.nSplines+' splines + '+g.nArcs+' arcs)'
+                 : p.ofmt === 'polyline'   ? '1 polyline ('+(g.nLines+g.nArcs)+' segs)'
+                 :                           (g.nLines+g.nArcs)+' ('+g.nLines+' lines + '+g.nArcs+' arcs)';
+  const rootStyleIn = p.rootMode === 'flat'   ? 'FLAT ROOT + CORNER R'
+                    : p.rootMode === 'fillet' ? 'SINGLE FILLET R'
+                    :                           'AUTO';
+
+  const chkRows = [
+    secRow('Size &amp; flank geometry'),
+    txtRow('Number of teeth z',
+           p.altAny ? `${p.zFull} (built as ${p.z})` : String(p.zFull), '—'),
+    txtRow('Module m / diametral pitch',
+             p.sizeMode === 'module' ? p.module.toFixed(5)
+           : p.sizeMode === 'dp'     ? p.dpitch + ' DP'
+           :                           '—',
+           g.module.toFixed(5) + ' / ' + (25.4 / g.module).toFixed(3)),
+    chkRow('Pitch ∅ D', p.D, null, null, 5),
+    degRow('Pressure angle α (ref vs from D, Db)', p.alpha, g.alphaDeg, 4),
+    chkRow('Base ∅ Db', p.Db, null, null, 5),
+    chkRow(tipName,  p.Dtip,  tipBuilt,     bandOf(p.DtipBand.top,  p.DtipBand.bot),  4),
+    chkRow(rootName, p.Droot, g.rootDiaEff, bandOf(p.DrootBand.top, p.DrootBand.bot), 4),
+    chkRow(`Form ∅ / fillet tangency (must be ${g.internal ? '≥ DFi' : '≤ DFe'})`,
+           p.DForm > 0 ? p.DForm : null, g.tangDia, null, 4),
+
+    secRow(g.internal ? 'Space width' : 'Tooth thickness'),
+    txtRow('Flank anchored by',
+           p.anchor === 'pins' ? (g.internal ? 'between' : 'over') + '-pins meas.'
+                               : (g.internal ? 'space width' : 'tooth thickness'), '—'),
+    chkRow(`Act. ${swName}${p.anchor === 'pins' ? ' (solved)' : ''}`,
+           midOf(swBand), g.swMid, swBand, 4),
+    chkRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)}`,
+           midOf(pinBand), g.pinM, pinBand, 4),
+    bt ? chkRow(`Base tangent W over ${bt.k} teeth`, midOf(rawBand), bt.mid, rawBand, 4) : '',
+
+    secRow('Root &amp; tip detail'),
+    txtRow('Root style', rootStyleIn, rootDesc),
+    chkRow('Root fillet radius r', p.rfil > 0 ? p.rfil : null, g.rfUsed, null, 4),
+    txtRow('Max full-fillet radius', '—', L(g.rfFull, 4) + ' ' + UN),
+    chkRow(`Tooth tip ${g.tipChamfer ? 'chamfer leg' : 'corner radius'}`,
+           p.rtip > 0 ? p.rtip : null, g.tipFillet ? g.tipR : null, null, 3),
+    txtRow('Tooth tip land', '—',
+           g.tipFillet ? g.tipLandDeg.toFixed(3) + '°' : '— (sharp corner)'),
+    txtRow('Root arc span', '—',
+           g.fullFillet ? '— (full fillet)' : g.majSpan.toFixed(4) + '°'),
+
+    p.gear ? secRow('Gear data (normal system)') : '',
+    p.gear ? txtRow('Normal module mn', p.gear.mn, '—') : '',
+    p.gear ? txtRow('Normal pressure angle αn', p.gear.anDeg + '°', '—') : '',
+    p.gear ? txtRow('Helix angle β',
+                    p.gear.betaDeg + '°' + (p.gear.betaDeg > 0 ? ' ' + p.gear.hand : ' (spur)'),
+                    p.gear.betaDeg > 0 ? 'lead ' + L(p.gear.lead, 2) + ' ' + UN : '— (spur)') : '',
+    p.gear ? txtRow('Profile shift coef xn (nominal)',
+                    isNaN(p.gear.xn) ? '—' : p.gear.xn, '—') : '',
+    p.gear ? txtRow('Gear flank anchor',
+                    p.gear.ganchor === 'span'  ? 'base tangent W over ' + p.gear.k + ' teeth'
+                  : p.gear.ganchor === 'balls' ? 'over balls · ball ∅ ' + p.gear.DM
+                  :                              'from xn (zero backlash)', '—') : '',
+
+    p.coatOn ? secRow('Coating') : '',
+    p.coatOn ? txtRow('Coating per surface mini / maxi',
+                      L(p.coatMin, 4) + ' / ' + L(p.coatMax, 4) + ' ' + UN, '—') : '',
+    p.coatOn ? txtRow('Coating mean c̄ · on any ∅ 2c̄',
+                      L((p.coatMin + p.coatMax) / 2, 4) + ' · ' + L(p.coatMin + p.coatMax, 4) + ' ' + UN, '—') : '',
+    p.coatOn ? txtRow('Values above describe the',
+                      p.coatDir === 'post' ? 'FINISHED (post-coating) part'
+                                           : 'MACHINED (pre-coating) part', '—') : '',
+    p.coatOn ? txtRow('Tooth tip break under coating',
+                      'carried across unchanged', 'edge break, not functional') : '',
+
+    secRow('Build &amp; output'),
+    txtRow('Flank segments / side', p.nsegs, '—'),
+    txtRow(`Start angle (CW from 12 o'clock)`,
+           `${p.startCW}° · 0 = ${p.want12} ⌖ top${p.clock12 === 'auto' ? ' (auto)' : ' (set)'}`, '—'),
+    p.oneAny ? txtRow(`Missing ${p.oneGap ? 'GAP — space left UNCUT' : 'TOOTH — cut away to root ∅'}`,
+                      `index ${p.missIdx} of ${p.z}`,
+                      `⌖ at ${p.missCW.toFixed(3)}° CW from 12`) : '',
+    chkRow('Circular pitch', null, cp, null, 5),
+    txtRow('Angular pitch', '—', g.pitch.toFixed(5) + '°'),
+    txtRow('DXF entities', '—', entTxt)
+  ].filter(Boolean).join('\n  ');
+
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <title>Spline report — ${fname}</title>
 <style>
+  /* Explicit white: the report only ever set a text colour, so on a browser in
+     dark mode it rendered near-black on near-black. It is a document, not a UI —
+     it should look like the paper it gets printed on whatever the viewer's theme. */
   body { font-family: "Segoe UI", Arial, sans-serif; font-size: 12px; color: #111;
-         max-width: 720px; margin: 24px auto; padding: 0 16px; }
+         background: #fff; max-width: 780px; margin: 24px auto; padding: 0 16px; }
   h1 { font-size: 17px; margin: 0; letter-spacing: 0.04em; }
   .sub { color: #555; font-size: 11px; margin: 2px 0 0; }
   .meta { display: flex; justify-content: space-between; border-bottom: 2px solid #111;
@@ -4497,7 +4660,20 @@ function buildReportHTML(p, g, imgData) {
   td, th { padding: 3px 8px; border-bottom: 1px solid #e0e0e0; text-align: left; vertical-align: top; }
   td.num { font-family: Consolas, monospace; text-align: right; white-space: nowrap; }
   th { font-size: 10px; text-transform: uppercase; color: #555; letter-spacing: 0.06em; }
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+  /* FIXED layout, or the browser sizes the columns from their content and the
+     global td.num nowrap pushes the last two columns clean off the printed page.
+     Fixed honours the percentages and wraps instead. */
+  table.chk { table-layout: fixed; font-size: 11px; }
+  table.chk td:first-child, table.chk th:first-child { width: 31%; }
+  table.chk td.num, table.chk th.num { width: 17.25%; text-align: right; white-space: normal;
+                                       word-break: break-word; }
+  tr.sec td { background: #f2f2f2; font-size: 10px; text-transform: uppercase; font-weight: 700;
+              letter-spacing: 0.08em; color: #444; padding-top: 5px; }
+  /* OUT OF TOLERANCE. Red alone dies on a mono printer and this report is printed
+     for the shop floor, so the row also carries a ⚠ and bold — the warning has to
+     survive the photocopier, not just the screen. */
+  tr.bad td { color: #b00020; font-weight: 700; background: #fdeff1; }
+  .badinline { color: #b00020; }
   td.blank { border: 1px solid #bbb; min-width: 90px; }
   .img-wrap { text-align: center; margin: 14px 0 4px; }
   .img-wrap img { width: 280px; border: 1px solid #ccc; }
@@ -4519,57 +4695,16 @@ function buildReportHTML(p, g, imgData) {
   <div class="sub" style="text-align:right">FILE: <b>${fname}</b><br>GENERATED: ${dstr}</div>
 </div>
 
-<div class="two-col">
-<div>
-<h2>Input data ${p.gear ? '(gear drawing, normal system)' : '(GSSpline sheet, ' + (g.internal ? 'internal' : 'external') + ')'}</h2>
-<table>
-  ${p.gear ? `
-  <tr><td>Normal module mn</td><td class="num">${p.gear.mn}</td></tr>
-  <tr><td>Normal pressure angle αn</td><td class="num">${p.gear.anDeg}°</td></tr>
-  <tr><td>Helix angle β</td><td class="num">${p.gear.betaDeg}°${p.gear.betaDeg > 0 ? ' ' + p.gear.hand : ' (spur)'}</td></tr>
-  <tr><td>Profile shift coef xn (nominal)</td><td class="num">${isNaN(p.gear.xn) ? '—' : p.gear.xn}</td></tr>
-  <tr><td>Gear flank anchor</td><td class="num">${p.gear.ganchor === 'span' ? 'base tangent W over ' + p.gear.k + ' teeth' : p.gear.ganchor === 'balls' ? 'over balls · ball ∅ ' + p.gear.DM : 'from xn (zero backlash)'}</td></tr>
-  ` : ''}
-  <tr><td>Number of teeth z</td><td class="num">${p.z}</td></tr>
-  <tr><td>Pitch diameter D</td><td class="num">${L(p.D,5)} ${UN}</td></tr>
-  <tr><td>Pressure angle (ref) α</td><td class="num">${p.alpha}°</td></tr>
-  <tr><td>Base diameter Db</td><td class="num">${L(p.Db,5)} ${UN}</td></tr>
-  <tr><td>${g.internal ? 'Minor diameter Di' : 'Major diameter Do'} (tips)</td><td class="num">${L(p.Dtip,4)} ${UN}</td></tr>
-  <tr><td>${g.internal ? 'Major diameter Dri' : 'Minor diameter Dre'} (root)</td><td class="num">${L(p.Droot,4)} ${UN}</td></tr>
-  <tr><td>Flank anchored by</td><td class="num">${p.anchor === 'pins' ? (g.internal ? 'between' : 'over') + '-pins meas.' : (g.internal ? 'space width' : 'tooth thickness')}</td></tr>
-  <tr><td>Act. ${g.internal ? 'space width s' : 'tooth thickness t'} maxi${p.anchor === 'pins' ? ' (solved)' : ''}</td><td class="num">${L(g.swMax,4)} ${UN}</td></tr>
-  <tr><td>Act. ${g.internal ? 'space width s' : 'tooth thickness t'} mini${p.anchor === 'pins' ? ' (solved)' : ''}</td><td class="num">${L(g.swMin,4)} ${UN}</td></tr>
-  <tr><td>${g.internal ? 'Space width' : 'Tooth thickness'} used (MID)</td><td class="num">${L(g.swMid,5)} ${UN}</td></tr>
-  <tr><td>Root fillet input</td><td class="num">${p.rfil > 0 ? L(p.rfil,3)+' '+UN : '0 (auto)'}</td></tr>
-  <tr><td>Tooth tip ${p.tipType === 'chamfer' ? 'chamfer (× 45°)' : 'corner radius'}</td><td class="num">${p.rtip > 0 ? L(p.rtip,3)+' '+UN : '0 (sharp)'}</td></tr>
-  <tr><td>Flank segments / side</td><td class="num">${p.nsegs}</td></tr>
-  <tr><td>Start angle (CW from 12 o'clock)</td><td class="num">${p.startCW}° · 0 = ${p.want12} ⌖ top${p.clock12 === 'auto' ? ' (auto)' : ' (set)'}</td></tr>
-  ${p.oneAny ? `<tr><td>Missing ${p.oneGap ? 'GAP — space left UNCUT' : 'TOOTH — cut away to root ∅'}</td><td class="num">index ${p.missIdx} of ${p.z} · ⌖ at ${p.missCW.toFixed(3)}° CW from 12</td></tr>` : ''}
-  ${p.coatOn ? `<tr><td>Coating (per surface) mini / maxi</td><td class="num">${L(p.coatMin,4)} / ${L(p.coatMax,4)} ${UN}</td></tr>
-  <tr><td>Coating mean c̄ · on any ∅ 2c̄</td><td class="num">${L((p.coatMin+p.coatMax)/2,4)} · ${L(p.coatMin+p.coatMax,4)} ${UN}</td></tr>
-  <tr><td>Above values describe the</td><td class="num">${p.coatDir === 'post' ? 'FINISHED (post-coating) part' : 'MACHINED (pre-coating) part'}</td></tr>
-  <tr><td>Coating variation on the band</td><td class="num">${L(2*(p.coatMax-p.coatMin),4)} ${UN} on any ∅ — narrows the pre-coating band</td></tr>
-  <tr><td>Tooth tip break under coating</td><td class="num">carried across unchanged (edge break, not functional)</td></tr>` : ''}
+<h2>Data check — input vs as built ${p.gear ? '(gear drawing, normal system)' : '(GSSpline sheet, ' + (g.internal ? 'internal' : 'external') + ')'}</h2>
+<table class="chk">
+  <tr><th>Quantity</th><th class="num">Input (as entered)</th><th class="num">Computed (as built)</th><th class="num">Tolerance</th><th class="num">Deviation from mid</th></tr>
+  ${chkRows}
 </table>
-</div>
-<div>
-<h2>Computed geometry</h2>
-<table>
-  <tr><td>Module / Diametral pitch</td><td class="num">${g.module.toFixed(5)} / ${(25.4/g.module).toFixed(3)}</td></tr>
-  <tr><td>Actual α (from D, Db)</td><td class="num">${g.alphaDeg.toFixed(4)}°</td></tr>
-  <tr><td>Angular pitch</td><td class="num">${g.pitch.toFixed(5)}°</td></tr>
-  <tr><td>Circular pitch</td><td class="num">${L(cp,5)} ${UN}</td></tr>
-  <tr><td>Root fillet used</td><td class="num" style="white-space:normal">${rootDesc}</td></tr>
-  <tr><td>Tooth tip ${g.tipChamfer ? 'chamfer' : 'corner radius'}</td><td class="num">${g.tipFillet ? L(g.tipR,3)+' '+UN+(g.tipChamfer?' × 45°':'')+' · tip land '+g.tipLandDeg.toFixed(3)+'°' : '— (sharp corner)'}</td></tr>
-  <tr><td>Fillet tangency ∅ (must be ${g.internal ? '≥ form ∅ DFi' : '≤ form ∅ DFe'})</td><td class="num">${L(g.tangDia,4)} ${UN}</td></tr>
-  <tr><td>Root arc span</td><td class="num">${g.fullFillet ? '— (full fillet)' : g.majSpan.toFixed(4)+'°'}</td></tr>
-  <tr><td>DXF entities</td><td class="num">${
-      p.ofmt === 'splineloop' ? '1 closed spline (whole profile)'
-    : p.ofmt === 'spline'     ? (g.nSplines+g.nArcs)+' ('+g.nSplines+' splines + '+g.nArcs+' arcs)'
-    : p.ofmt === 'polyline'   ? '1 polyline ('+(g.nLines+g.nArcs)+' segs)'
-    :                           (g.nLines+g.nArcs)+' ('+g.nLines+' lines + '+g.nArcs+' arcs)'}</td></tr>
-</table>
-</div>
+<div class="cap" style="text-align:left; margin-top:4px">
+  Deviation = computed − target, where the target is the MID limit when the value is toleranced
+  and the entered value when it is not. A zero is a confirmation that the value landed where it
+  was asked to; <b class="badinline">a red row means the computed value falls outside its tolerance band</b>.
+  Values with a single entered limit have no band and are never coloured.
 </div>
 
 <h2>Inspection check — dimension ${g.internal ? 'between' : 'over'} pins</h2>
