@@ -616,7 +616,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v23 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v24 · SPLINE + GEAR + COATING</div>
   </header>
 
   <div class="main">
@@ -2806,10 +2806,23 @@ function updateReadout(p, g) {
         document.getElementById('smin').value = fromMM(Wf.min,4);
       }
     } catch (e) { /* span not computable — leave fields */ }
-    if (G.ganchor !== 'balls' && g.pinMmax !== null && g.pinMmin !== null) {
-      document.getElementById('mmax').value = fromMM(g.pinMmax,4);
-      document.getElementById('mmin').value = fromMM(g.pinMmin,4);
-    }
+  }
+  // ── PIN / BALL FIELDS ARE SOLVED WHENEVER THEY ARE NOT THE ANCHOR ──
+  // This block used to sit INSIDE the gear branch above, so it only ever ran in
+  // gear mode. In SPLINE mode onAnchorChange() still greyed the two fields and
+  // gave them the 'derived' class that prints ' · solved' on the label — but
+  // nothing wrote to them. They kept the previous part's numbers while looking
+  // like the tool had calculated them.
+  // Found 10.08.2026 on a 47-tooth hub: the boxes read 36.361 / 36.431 where the
+  // entered space width gives 54.620 / 54.658. An 18 mm error sitting behind a
+  // grey box, while the CORRECT values were in the readout panel the whole time.
+  // Safe to write here: in space-width mode these values are read by getParams
+  // but never used (validate guards them behind anchor === 'pins', and the
+  // geometry solves from s), so filling them cannot move the DXF.
+  const pinsAreTheAnchor = p.anchor === 'pins' || (p.gear && p.gear.ganchor === 'balls');
+  if (!pinsAreTheAnchor && g.pinMmax !== null && g.pinMmin !== null) {
+    document.getElementById('mmax').value = fromMM(g.pinMmax,4);
+    document.getElementById('mmin').value = fromMM(g.pinMmin,4);
   }
 }
 
@@ -4556,6 +4569,15 @@ function buildReportHTML(p, g, imgData) {
   const swName   = g.internal ? 'space width s' : 'tooth thickness t';
   const swBand   = bandOf(p.smax, p.smin);
   const pinBand  = bandOf(p.mmax, p.mmin);
+  // A field that the tool SOLVED cannot also be a check on the tool. Whichever of
+  // the two measurements is not the anchor is filled in from the other, so
+  // comparing it against the computed value compares a number with itself and
+  // prints a guaranteed 0.0000 — and a column of guaranteed zeros trains the eye
+  // to skip it. Those rows show what was computed and leave the tolerance and
+  // deviation blank. The cross-check against the drawing lives in the hand-filled
+  // Inspection Check table at the foot of the report. (the author, 10.08.2026.)
+  const pinsSolved = !(p.anchor === 'pins' || (p.gear && p.gear.ganchor === 'balls'));
+  const swSolved   = p.anchor === 'pins' || !!p.gear;   // gear: st is always derived from the anchor
   const rawBand  = bandOf(p.smaxRaw, p.sminRaw);
   const bt       = (p.gear && p.gear.ganchor === 'span' && !g.internal)
                      ? baseTangent(p, g, p.gear.k) : null;
@@ -4588,10 +4610,14 @@ function buildReportHTML(p, g, imgData) {
     txtRow('Flank anchored by',
            p.anchor === 'pins' ? (g.internal ? 'between' : 'over') + '-pins meas.'
                                : (g.internal ? 'space width' : 'tooth thickness'), '—'),
-    chkRow(`Act. ${swName}${p.anchor === 'pins' ? ' (solved)' : ''}`,
-           midOf(swBand), g.swMid, swBand, 4),
-    chkRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)}`,
-           midOf(pinBand), g.pinM, pinBand, 4),
+    swSolved
+      ? txtRow(`Act. ${swName} (solved)`, '—', has(g.swMid) ? L(g.swMid, 4) : '—')
+      : chkRow(`Act. ${swName}`, midOf(swBand), g.swMid, swBand, 4),
+    pinsSolved
+      ? txtRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)} (solved)`,
+               '—', has(g.pinM) ? L(g.pinM, 4) : '—')
+      : chkRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)}`,
+               midOf(pinBand), g.pinM, pinBand, 4),
     bt ? chkRow(`Base tangent W over ${bt.k} teeth`, midOf(rawBand), bt.mid, rawBand, 4) : '',
 
     secRow('Root &amp; tip detail'),
