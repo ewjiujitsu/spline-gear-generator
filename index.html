@@ -616,7 +616,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v25 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v26 · SPLINE + GEAR + COATING</div>
   </header>
 
   <div class="main">
@@ -4579,6 +4579,30 @@ function buildReportHTML(p, g, imgData) {
   const solvedRow = (label, cmp, band) =>
     txtRow(label, '—', has(cmp) ? L(cmp) : '—',
            band ? `${L(band.bot)} … ${L(band.top)}` : '—', '—');
+  // DIRECTIONAL (one-sided) check. The form ∅ is not a band — it is a LIMIT the
+  // involute must be held true at least as far as, and going further is margin,
+  // not error:
+  //   INTERNAL — the involute runs from the tip ∅ OUTWARD to the root. The root
+  //     fillet eats it from the outside in, so the tangency must land AT or
+  //     BEYOND DFi. tangency < DFi means the fillet has bitten into flank that
+  //     still had to be true involute.
+  //   EXTERNAL — mirror image. The involute runs from the tip ∅ DOWN to the
+  //     root, so the tangency must land AT or BELOW DFe, and tangency > DFe is
+  //     the fault.
+  // So the deviation on this row is signed CLEARANCE and only the wrong sign is
+  // a defect. It was previously printed with no check at all, which made a
+  // healthy +0.404 of margin look identical to a breach. (the author, 10.08.2026.)
+  const dirRow = (label, inp, cmp, atLeast, dp) => {
+    if (!has(inp) || !has(cmp)) return chkRow(label, has(inp) ? inp : null, has(cmp) ? cmp : null, null, dp);
+    const d   = cmp - inp;
+    const bad = atLeast ? (d < -5e-7) : (d > 5e-7);
+    const dev = sgn(d, L(Math.abs(d) < 5e-7 ? 0 : d, dp));
+    return `<tr class="${bad ? 'bad' : 'ok'}"><td>${label}</td>`
+         + `<td class="num">${L(inp, dp)}</td>`
+         + `<td class="num">${L(cmp, dp)}</td>`
+         + `<td class="num">${atLeast ? '≥ ' : '≤ '}${L(inp, dp)}</td>`
+         + `<td class="num">${bad ? '⚠ ' : ''}${dev}${bad ? '' : ' margin'}</td></tr>`;
+  };
   const secRow = t => `<tr class="sec"><td colspan="5">${t}</td></tr>`;
 
   const tipName  = g.internal ? 'Minor ∅ Di (tips)'  : 'Major ∅ Do (tips)';
@@ -4621,8 +4645,8 @@ function buildReportHTML(p, g, imgData) {
     chkRow('Base ∅ Db', p.Db, null, null, 5),
     chkRow(tipName,  p.Dtip,  tipBuilt,     bandOf(p.DtipBand.top,  p.DtipBand.bot),  4),
     chkRow(rootName, p.Droot, g.rootDiaEff, bandOf(p.DrootBand.top, p.DrootBand.bot), 4),
-    chkRow(`Form ∅ / fillet tangency (must be ${g.internal ? '≥ DFi' : '≤ DFe'})`,
-           p.DForm > 0 ? p.DForm : null, g.tangDia, null, 4),
+    dirRow(`Form ∅ / fillet tangency (${g.internal ? 'DFi' : 'DFe'})`,
+           p.DForm > 0 ? p.DForm : null, g.tangDia, g.internal, 4),
 
     secRow(g.internal ? 'Space width' : 'Tooth thickness'),
     txtRow('Flank anchored by',
@@ -4718,6 +4742,11 @@ function buildReportHTML(p, g, imgData) {
      survive the photocopier, not just the screen. */
   tr.bad td { color: #b00020; font-weight: 700; background: #fdeff1; }
   .badinline { color: #b00020; }
+  /* PASSING one-sided check. Only used on rows where a LARGE non-zero deviation
+     is the good outcome (the form ∅ margin), because there a black "+0.404"
+     reads like a fault at a glance. Everywhere else, passing stays plain black —
+     colouring every good row would make the red stop meaning anything. */
+  tr.ok td { color: #0a6b3d; }
   td.blank { border: 1px solid #bbb; min-width: 90px; }
   .img-wrap { text-align: center; margin: 14px 0 4px; }
   .img-wrap img { width: 280px; border: 1px solid #ccc; }
@@ -4752,6 +4781,9 @@ function buildReportHTML(p, g, imgData) {
   A row marked (solved) was derived by the generator from the other measurement, so it has no
   independent input and no deviation — but its TOLERANCE is real: it is the band implied by the
   other measurement's drawing limits, and it is the range to work to when inspecting that feature.
+  The form ∅ row is a ONE-SIDED limit, not a band: the involute must be held true
+  ${g.internal ? 'at least OUT TO the entered DFi, so the tangency must be ≥ it' : 'at least DOWN TO the entered DFe, so the tangency must be ≤ it'}
+  — anything further is margin and is shown in green. Only the wrong side is a fault.
   All dimensions to ${inch ? '4 decimal places (inch)' : '3 decimal places (mm)'}.
 </div>
 
