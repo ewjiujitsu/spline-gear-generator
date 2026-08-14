@@ -614,7 +614,7 @@
     <div class="header-left">
       <div class="header-tag">Involute Spline &amp; Gear Generator</div>
       <div class="header-title">DXF <span>Generator</span></div>
-      <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
+      <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
     <div class="header-badge">KAIZEN TOOL v27 · SPLINE + GEAR + COATING + HT</div>
   </header>
@@ -1000,7 +1000,7 @@
       <div class="section">
         <div class="section-header">
           <span class="section-number">05</span>
-          <span class="section-title">Soft Stage — Pre Heat Treat (pre-grind roughing)</span>
+          <span class="section-title">Soft Stage — grinding stock left on before HT (pre-grind roughing)</span>
         </div>
         <div class="fields">
           <div class="field-row">
@@ -3785,7 +3785,13 @@ function generateCoatGaugeDXF(stage, which) {
       const cp  = coatParams(p, g, stage);
       const gc  = buildGeometry(cp);                  // the stage the gauge must check
       const gp  = gaugeParams(cp, gc, which);
-      gp.fname  = gp.fname + (stage === 'pre' ? '_PRE_COAT' : '_POST_COAT');
+      // Strip-then-append, for the reason set out in generateHtGaugeDXF: coatParams
+      // stamps the stage onto cp.fname and gaugeParams builds the gauge name from
+      // it, so a plain append produced "..._PRE_COAT_GO_GAUGE_PRE_COAT" on the
+      // derived stage while the drawing stage got "..._GO_GAUGE_POST_COAT" — doubled
+      // in one case, differently placed in the other. (the author, 14.08.2026.)
+      const sfx = (stage === 'pre' ? '_PRE_COAT' : '_POST_COAT');
+      gp.fname  = gp.fname.split(sfx).join('') + sfx;
       buildGaugeGeom(gp);
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
@@ -5207,7 +5213,7 @@ function buildReportHTML(p, g, imgData) {
     p.coatOn ? txtRow('Tooth tip break under coating',
                       'carried across unchanged', 'edge break, not functional') : '',
 
-    p.htOn ? secRow('HT distortion') : '',
+    p.htOn ? secRow('HT distortion (section 08) &mdash; not the section 05 grinding stock') : '',
     p.htOn ? txtRow('Direction in heat treatment',
                     p.htSign === 'shrink' ? 'SHRINKAGE — material pulls inward'
                                           : 'GROWTH — material moves outward', '—') : '',
