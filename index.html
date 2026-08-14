@@ -616,7 +616,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft stage (pre-HT) + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v26 · SPLINE + GEAR + COATING</div>
+    <div class="header-badge">KAIZEN TOOL v27 · SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -1127,10 +1127,113 @@
         </div>
       </div>
 
-      <!-- History -->
+      <!-- HT distortion -->
       <div class="section">
         <div class="section-header">
           <span class="section-number">08</span>
+          <span class="section-title">HT distortion — pre-HT / post-HT size compensation</span>
+        </div>
+        <div class="fields">
+          <div class="field-row">
+            <div class="field field-wide">
+              <div class="field-label">HT distortion compensation <span class="unit">[-]</span></div>
+              <select id="ht_on" onchange="onHtChange()">
+                <option value="off" selected>NONE — no HT compensation · everything below is ignored</option>
+                <option value="on">COMPENSATE — derive the other HT stage from the table above</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field field-wide">
+              <div class="field-label" id="lbl-htdir">Which stage sections 02–06 describe <span class="unit">[-]</span></div>
+              <select id="ht_dir" onchange="onHtChange()">
+                <option value="post" selected>DRAWING = POST-HT (finished) → derive the PRE-HT size to cut</option>
+                <option value="pre">DRAWING = PRE-HT (as cut) → derive the POST-HT finished size</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label">Direction <span class="unit">[-]</span></div>
+              <div class="field-name">what the material does in HT</div>
+              <select id="ht_sign" onchange="onHtChange()">
+                <option value="growth" selected>GROWTH — outward</option>
+                <option value="shrink">SHRINKAGE — inward</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="field-label">Distortion given as <span class="unit">[-]</span></div>
+              <div class="field-name">basis of the two values below</div>
+              <select id="ht_basis" onchange="onHtChange()">
+                <option value="surface" selected>PER SURFACE</option>
+                <option value="dia">ON &empty;</option>
+                <option value="pins">OVER / BETWEEN PINS</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label" id="lbl-htmin">Distortion, mini — PER SURFACE <span class="unit">[mm]</span></div>
+              <div class="field-name">d mini (smallest measured)</div>
+              <input type="text" inputmode="decimal" id="ht_min" value="" step="0.0001" oninput="onChange()">
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-htmax">Distortion, maxi — PER SURFACE <span class="unit">[mm]</span></div>
+              <div class="field-name">d maxi (largest measured)</div>
+              <input type="text" inputmode="decimal" id="ht_max" value="" step="0.0001" oninput="onChange()">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field field-wide">
+              <div class="field-label">Tolerance treatment <span class="unit">[-]</span></div>
+              <select id="ht_mode" onchange="onHtChange()">
+                <option value="narrow" selected>NARROW THE BAND — scatter applied · any part in the band lands in tolerance</option>
+                <option value="shift">SHIFT THE MID — band width kept · scatter reported, not applied</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field field-wide">
+              <div style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.6">
+                <b>USE THIS WHEN THE FEATURE IS CUT SOFT AND NOT MACHINED AFTER HT.</b>
+                If it is hard-finished after HT the distortion is absorbed by the grinding stock &mdash;
+                use the soft-stage allowance in section 05 instead, and increase it if the distortion
+                exceeds it. The two are alternatives, never both on the same feature.<br>
+                <b>DIRECTION</b> &mdash; GROWTH moves every surface outward along its own normal.
+                On an INTERNAL spline that makes the space width and every &empty; <b>smaller</b>, so the
+                pre-HT profile must be cut <b>bigger</b>. SHRINKAGE is the mirror image. A distortion
+                <b>d</b> per surface moves any &empty; by <b>2d</b> and the base tangent by
+                <b>&Delta;W = 2d</b>; at the pitch &empty; the s/t band moves 2d/cos&nbsp;&alpha;p.
+                Flanks, root &empty; AND tip &empty; are all treated as distorted.<br>
+                <b>MINI may be NEGATIVE</b> &mdash; measure ten parts and some may move the other way.
+                A negative mini simply means "some parts went against the direction set above".<br>
+                <b>NARROW THE BAND</b> pairs each pre-HT limit with the distortion extreme that works
+                AGAINST it, so a part anywhere in the pre-HT band lands inside the drawing band for
+                ANY distortion in the measured range &mdash; the band narrows by
+                2&times;(d maxi &minus; d mini)/cos&nbsp;&alpha;p. That is what makes a whole batch
+                come out right. If the scatter eats the whole band the tool says so and points you at
+                SHIFT THE MID rather than quietly clamping.<br>
+                <b>SHIFT THE MID</b> keeps the band width and moves the mid by the mean distortion.
+                The scatter is still measured and printed as a % of the band, but it is not applied &mdash;
+                individual parts can then fall outside. Use it when the scatter will not fit and you
+                need the aim point anyway.<br>
+                <b>HONEST LIMIT &mdash; this is a SIZE compensation only.</b> It does not model
+                out-of-round, lead/helix distortion or index error, which are usually the larger half of
+                real HT movement and cannot be corrected by a size shift. And the band is only as good
+                as the sample it came from: ten parts is a sample, not a specification &mdash; the
+                eleventh can fall outside it.<br>
+                The tooth-tip BREAK is carried across unchanged &mdash; it is an edge break, not a
+                functional dimension.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-number">09</span>
           <span class="section-title">History — parts generated on this machine</span>
         </div>
         <div class="fields">
@@ -1280,6 +1383,17 @@
           <button onclick="generateCoatGaugeDXF('post','go')">↓ Post GO</button>
           <button onclick="generateCoatGaugeDXF('post','nogo')">↓ Post NO-GO</button>
         </div>
+        <div class="btn-row" id="ht-btns-1" style="display:none">
+          <button onclick="generateHtDXF('pre')">↓ Pre-HT DXF</button>
+          <button onclick="generateHtDXF('post')">↓ Post-HT DXF</button>
+          <button onclick="generateHtTable()">⎙ HT Table</button>
+        </div>
+        <div class="btn-row" id="ht-btns-2" style="display:none">
+          <button onclick="generateHtGaugeDXF('pre','go')">↓ Pre-HT GO</button>
+          <button onclick="generateHtGaugeDXF('pre','nogo')">↓ Pre-HT NO-GO</button>
+          <button onclick="generateHtGaugeDXF('post','go')">↓ Post-HT GO</button>
+          <button onclick="generateHtGaugeDXF('post','nogo')">↓ Post-HT NO-GO</button>
+        </div>
         <button onclick="generateGearTable()" style="font-size:11px">⎙ Gear Data Table · drawing style (GEAR mode)</button>
         <button onclick="generateMachineTable()" style="font-size:11px">⎙ Machine Setup Table · alternate → cut as z/2</button>
         <button onclick="resetDefaults()" style="font-size:10px;padding:7px 12px">↺ Reset fields to defaults</button>
@@ -1373,7 +1487,7 @@ function isInch() { return document.getElementById('tunit').value === 'inch'; }
 // holds P [1/in] in dp mode), angles (alpha/beta/start), xn, nsegs, spank.
 const LINEAR_IDS = ['Dtip','Droot','Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
                     'DForm','D','Db','smax','smin','mmax','mmin','rfil','rtip','pin','allow','teff','gclr',
-                    'coat_min','coat_max'];
+                    'coat_min','coat_max','ht_min','ht_max'];
 let _lastUnit = null;   // set at init; onUnitChange converts only on a real flip
 function onUnitChange() {
   const inch = isInch();
@@ -1821,6 +1935,20 @@ function getParams() {
     coatDir: document.getElementById('coat_dir').value,             // 'post' = the table above IS the finished part | 'pre' = it is the machined part
     coatMin: evalNum(document.getElementById('coat_min').value) * UF || 0,
     coatMax: evalNum(document.getElementById('coat_max').value) * UF || 0,
+    // HT DISTORTION (14.08.2026). Same normal-offset transform as coating,
+    // with three differences the author specified: the direction is CHOSEN (grow/shrink)
+    // rather than implied by adding material; the value can be entered in the basis
+    // it was MEASURED in; and the tolerance treatment is selectable, because HT
+    // scatter is a sample and not a spec. htOn gates it all — off = unchanged tool.
+    htOn:    document.getElementById('ht_on').value === 'on',
+    htDir:   document.getElementById('ht_dir').value,     // 'post' = the table above IS the finished part | 'pre' = it is the as-cut part
+    htSign:  document.getElementById('ht_sign').value,    // 'growth' (material moves outward) | 'shrink'
+    htBasis: document.getElementById('ht_basis').value,   // 'surface' | 'dia' | 'pins' — basis of htMin/htMax
+    htMode:  document.getElementById('ht_mode').value,    // 'narrow' (band narrows by scatter) | 'shift' (mid only)
+    // NOT ||0 guarded away: a NEGATIVE mini is legal and meaningful (14.08.2026)
+    // — "some of the ten parts went the other way". Blank still lands on 0.
+    htMin:   evalNum(document.getElementById('ht_min').value) * UF || 0,
+    htMax:   evalNum(document.getElementById('ht_max').value) * UF || 0,
     rtip:  evalNum(document.getElementById('rtip').value) * UF || 0,  // tooth-tip break size (corner radius, or chamfer leg); 0 = sharp
     tipType: document.getElementById('tiptype').value,             // 'radius' (corner fillet) | 'chamfer' (r × 45° break)
     pin:   evalNum(document.getElementById('pin').value) * UF || 0,
@@ -1899,6 +2027,17 @@ function validate(p) {
     return 'Root style ' + (p.rootMode === 'flat' ? 'FLAT + corner radius' : 'SINGLE fillet') + ' needs r (root) > 0';
   if (p.rtip<0)                        return 'Tip corner radius ≥ 0';
   if (p.allow<0)                       return 'Soft-stage allowance ≥ 0';
+  // HT distortion. Blocked WITH coating rather than composed: the real order is
+  // machine → HT → grind → coat, so stacking the two transforms straight onto the
+  // drawing profile would compose them at the wrong stage and quietly produce a
+  // number nobody could defend. One at a time until the author specifies the ordering.
+  if (p.htOn && p.coatOn)              return 'HT distortion (08) and Coating (07) cannot both be ON — run one at a time';
+  if (p.htOn) {
+    if (!(p.htMax > 0))                return 'HT distortion: enter a distortion maxi > 0 (section 08) — if every part moved the other way, flip the DIRECTION toggle';
+    if (p.htMin > p.htMax)             return 'HT distortion: d mini is greater than d maxi (section 08)';
+    if (p.htBasis === 'pins' && !(p.pin > 0))
+      return 'HT distortion: pin ∅ (section 04) required to read a distortion given on the pin measurement';
+  }
   if (!isNaN(p.teff) && p.teff<=0)     return 'Effective limit must be > 0 (or blank)';
   if (!isNaN(p.gclr) && p.gclr<0)      return 'Gauge clearance ≥ 0 (or blank)';
   if (p.spank !== 0 && (p.spank < 2 || p.spank > p.z - 1)) return 'Base tangent teeth k must be 2 … z−1 (or blank = auto)';
@@ -1924,6 +2063,35 @@ function onCoatChange() {
   document.getElementById('lbl-coatdir').innerHTML = on
     ? `Sections 02–06 describe the <b>${dir === 'post' ? 'FINISHED (coated)' : 'MACHINED (bare)'}</b> part <span class="unit">[-]</span>`
     : 'Which stage sections 02–06 describe <span class="unit">[-]</span>';
+  onChange(true);
+}
+
+// ── HT DISTORTION: same greying/visibility contract as coating (14.08.2026).
+// OFF is the default and with it off nothing in getParams or the engine differs
+// from the tool before HT compensation existed. The mini/maxi labels restate the
+// CHOSEN BASIS, because "0.05" means three different sizes depending on whether it
+// was measured per surface, on a ∅ or over pins — and the label is the only place
+// that distinction is visible once the number is typed.
+function onHtChange() {
+  const on   = document.getElementById('ht_on').value === 'on';
+  const gear = document.getElementById('ptype').value === 'gear';
+  ['ht_dir','ht_sign','ht_basis','ht_min','ht_max','ht_mode'].forEach(id => {
+    const el = document.getElementById(id);
+    el.disabled = !on;
+    el.closest('.field').classList.toggle('na', !on);
+  });
+  document.getElementById('ht-btns-1').style.display = on ? '' : 'none';
+  document.getElementById('ht-btns-2').style.display = (on && !gear) ? '' : 'none';
+  const dir = document.getElementById('ht_dir').value;
+  document.getElementById('lbl-htdir').innerHTML = on
+    ? `Sections 02–06 describe the <b>${dir === 'post' ? 'FINISHED (post-HT)' : 'AS-CUT (pre-HT)'}</b> part <span class="unit">[-]</span>`
+    : 'Which stage sections 02–06 describe <span class="unit">[-]</span>';
+  const basisLab = { surface: 'PER SURFACE', dia: 'ON &empty;', pins: 'ON THE PIN MEASUREMENT' }
+                   [document.getElementById('ht_basis').value] || 'PER SURFACE';
+  document.getElementById('lbl-htmin').innerHTML =
+    `Distortion, mini — ${basisLab} <span class="unit">[mm]</span>`;
+  document.getElementById('lbl-htmax').innerHTML =
+    `Distortion, maxi — ${basisLab} <span class="unit">[mm]</span>`;
   onChange(true);
 }
 
@@ -2011,7 +2179,7 @@ function onPartTypeChange() {
     fieldOf(id).classList.toggle('derived', gear);
   });
   // Re-run the standard relabel chain for the (possibly forced) select values
-  onTipTypeChange(); onTypeChange(); onSizeModeChange(); onPatChange(); onRootModeChange(); onCoatChange();
+  onTipTypeChange(); onTypeChange(); onSizeModeChange(); onPatChange(); onRootModeChange(); onCoatChange(); onHtChange();
   if (!gear) {
     set('lbl-stype', 'Spline type <span class="unit">[int/ext]</span>');
     onAnchorChange();
@@ -3631,6 +3799,273 @@ function generateCoatGaugeDXF(stage, which) {
   }, 10);
 }
 
+// ── HT DISTORTION — PRE-HT / POST-HT STAGES (14.08.2026) ──────
+// the author's model: distortion evenly distributed, normal to the profile. That is the
+// SAME transform coating performs, so this reuses its shape rather than inventing
+// new geometry — the difference is that the sign is CHOSEN, not implied:
+//   GROWTH  ≡ a coating of thickness d   (material moves outward on every normal)
+//   SHRINK  ≡ a coating of thickness −d
+// The internal/external sign is already handled the way it is for coating: on an
+// INTERNAL spline material growing outward makes the space width and every ∅
+// SMALLER, so the pre-HT profile must be cut BIGGER. That is exactly the author's
+// worked example and it falls out of sgn = −1 for internal.
+//
+// WHEN THIS APPLIES (14.08.2026): only when the feature is cut soft and NOT
+// machined after HT. If it is ground afterwards the distortion is absorbed by the
+// stock allowance (section 05) and the answer to too much distortion is more
+// stock, not a compensated profile. The two never apply to the same feature, which
+// is why this section does not touch the soft stage at all.
+//
+// BASIS — the number the author will actually have is whatever the inspector measured:
+// per surface, on a ∅, or over/between pins. Converting by hand means dividing by
+// 2 and by cos αp on a shop floor, which is where errors live (K9), so the tool
+// takes the basis and does it. The pin conversion is not approximated: it is
+// measured with the engine itself (htPinSensitivity).
+//
+// TOLERANCE — design decision 14.08.2026, a chosen mode rather than one behaviour:
+//   NARROW  — coating's rule. Each pre-HT limit pairs with the distortion extreme
+//             working against it, so a part anywhere in the pre-HT band lands in
+//             tolerance for any distortion in the measured range. Ten parts give
+//             ten results; this is what makes the whole batch come out right.
+//   SHIFT   — band width kept, mid moved by the mean. The scatter is still
+//             measured and reported, but not applied. For when it will not fit.
+// The scatter is reported in BOTH modes, so choosing SHIFT never hides the number
+// that made NARROW impossible.
+
+// The pin measurement resulting from a per-surface material offset d, measured
+// with the validated engine rather than a closed form. Positive d = material
+// OUTWARD, so on an internal spline the space narrows and the measurement falls —
+// that sign is the same one htShift uses, taken from one place so the two cannot
+// disagree. Returns null when the pin cannot be evaluated (no pin ∅, pin swallowed
+// below the tip ∅), which is a real answer, not an error, at this level.
+function htPinMeasureAt(p, g, d) {
+  const sgnST = (p.stype !== 'external') ? -1 : 1;
+  const dS = sgnST * 2 * d / (p.Db / p.D);          // Δ(s/t) at the pitch ∅ for offset d
+  const probe = Object.assign({}, p, { anchor: 'thickness', htOn: false,
+                                       smax: g.swMax + dS, smin: g.swMin + dS,
+                                       mmax: NaN, mmin: NaN });
+  let gp;
+  try { gp = buildGeometry(probe); } catch (e) { return null; }
+  return (gp && gp.pinM !== null) ? gp.pinM : null;
+}
+
+// Per-surface offset that moves the pin measurement by exactly |v|, SOLVED rather
+// than scaled. A single slope taken at one probe point is 0.14% out at 0.10 mm
+// (0.09986 against 0.10000, measured 14.08.2026) because the pin rides up the
+// flank as it moves — the relation is near-linear, not linear. Two or three
+// scaling iterations drive that to the nanometre, and solving each of mini/maxi
+// separately means neither inherits the other's slope. v is signed: a NEGATIVE
+// value is the author's straddle case, "this one moved the other way".
+//
+// WHICH SEGMENT IS BEING MEASURED (fixed 14.08.2026, worth 400 nm at 0.10 mm):
+// the inspector's ΔM is the change across the HT step, and that step ENDS at the
+// drawing when the drawing is the post-HT part. Probing forward from the drawing
+// there measures the next 0.10 mm instead of the one that just happened, and
+// because the relation is not linear the two differ. probeDir points the probe at
+// the segment the user actually measured, which also makes it the same segment
+// htParams goes on to apply — so the solve and the build cannot disagree.
+function htPerSurfaceFromPins(p, g, v) {
+  if (!v) return 0;
+  if (g.pinM === null)
+    throw new Error('HT distortion: the pin measurement cannot be evaluated with this pin ∅ — ' +
+                    'enter the distortion PER SURFACE or ON ∅ instead (section 08)');
+  const probeDir = (p.htDir === 'post') ? -1 : 1;
+  const s = Math.sign(v), target = Math.abs(v);
+  const dM = d => { const m = htPinMeasureAt(p, g, probeDir * d); return m === null ? null : Math.abs(m - g.pinM); };
+  const probe = 0.01, m0 = dM(s * probe);
+  if (m0 === null || !(m0 > 1e-9))
+    throw new Error('HT distortion: the pin measurement does not respond to a size change here — ' +
+                    'enter the distortion PER SURFACE or ON ∅ instead (section 08)');
+  let x = probe * target / m0;                      // first estimate from the local slope
+  for (let i = 0; i < 6; i++) {
+    const m = dM(s * x);
+    if (m === null || !(m > 1e-12)) break;
+    if (Math.abs(m - target) < 1e-9) break;
+    x *= target / m;                                // scaling iteration — monotone, converges in 2
+  }
+  return s * x;
+}
+
+// The entered pair converted to SIGNED per-surface offsets, positive = outward.
+// The two values are MAGNITUDES in the direction set by the toggle (a negative
+// mini reverses that direction for that limit only); the basis says what they were
+// measured on, and each is converted on its own.
+//
+// THE TOGGLE'S SIGN IS APPLIED FIRST, BEFORE CONVERSION (14.08.2026). It used to
+// be applied after, which is fine for the linear bases but silently wrong for
+// pins: the solver has to probe the side the material actually moved, and with the
+// sign still outside it probed outward on a SHRINK part — 402 nm out, and only on
+// that one combination. Resolving the direction once, up front, means every basis
+// converts the same signed quantity and none of them can be handed the wrong side.
+function htOffsets(p, g) {
+  const sgn  = (p.htSign === 'shrink') ? -1 : 1;
+  const conv = u => p.htBasis === 'dia'  ? u / 2                        // a ∅ moves by 2d
+                  : p.htBasis === 'pins' ? htPerSurfaceFromPins(p, g, u)
+                  :                        u;
+  const a = conv(sgn * p.htMin), b = conv(sgn * p.htMax);
+  return { lo: Math.min(a, b), hi: Math.max(a, b), mid: (a + b) / 2 };
+}
+
+// What the offsets do to a quantity. Mirrors coatShift; takes the signed pair.
+function htShift(p, d, onDiameter) {
+  const sgn   = (p.stype !== 'external') ? -1 : 1;
+  const scale = onDiameter ? 1 : 1 / (p.Db / p.D);  // ∅: 2d · s/t at pitch ∅: 2d/cos αp
+  const a = sgn * 2 * d.lo * scale, b = sgn * 2 * d.hi * scale;
+  return { lo: Math.min(a, b), hi: Math.max(a, b), mid: (a + b) / 2, sgn };
+}
+
+// How much of the s/t band the measured scatter would consume. Reported in BOTH
+// tolerance modes — in NARROW it is what was applied, in SHIFT it is what was not.
+function htScatter(p, g) {
+  const d = htOffsets(p, g);
+  const T = htShift(p, d, false);
+  const band = g.swMax - g.swMin;
+  const eats = T.hi - T.lo;
+  return { d, T, band, eats, pct: band > 0 ? (eats / band) * 100 : (eats > 0 ? Infinity : 0) };
+}
+
+// Report-safe wrapper: the pins basis can legitimately fail to evaluate (no pin ∅,
+// pin swallowed below the tip ∅), and a report must still print in that case —
+// with the row saying so, not with the whole sheet refusing to open.
+function htScatterSafe(p, g) {
+  try { return htScatter(p, g); } catch (e) { return null; }
+}
+
+// Returns the params for the OTHER HT stage. `target` is 'pre' | 'post'; if it is
+// the stage the drawing already describes, p is returned untouched.
+function htParams(p, gFin, target) {
+  if (!p.htOn)            throw new Error('HT distortion: not enabled (section 08)');
+  if (!(p.htMax > 0))     throw new Error('HT distortion: enter a distortion maxi (section 08)');
+  if (p.htMin > p.htMax)  throw new Error('HT distortion: d mini is greater than d maxi');
+  if (target === p.htDir) return p;                 // already the stage on the drawing
+  const fwd    = (target === 'post');               // drawing is PRE-HT → build the distorted part
+  const narrow = (p.htMode === 'narrow');
+  const d = htOffsets(p, gFin);
+  const D = htShift(p, d, true), T = htShift(p, d, false);
+  const cp = Object.assign({}, p);
+  cp.anchor = 'thickness';                          // band already resolved — no pin re-solve
+  // s/t band. NARROW spreads the limits against the scatter; SHIFT moves both ends
+  // by the mean, so the width is preserved exactly.
+  const tHi = narrow ? T.hi : T.mid, tLo = narrow ? T.lo : T.mid;
+  cp.smax = fwd ? gFin.swMax + tHi : gFin.swMax - tHi;
+  cp.smin = fwd ? gFin.swMin + tLo : gFin.swMin - tLo;
+  cp.mmax = NaN; cp.mmin = NaN;
+  if (cp.smin > cp.smax) {                          // only reachable in NARROW
+    const eats = T.hi - T.lo;                       // = 2(d max − d min)/cos αp
+    const band = gFin.swMax - gFin.swMin;
+    throw new Error('HT distortion: the measured scatter eats ' + eats.toFixed(4) +
+                    ' of the ' + (p.stype !== 'external' ? 'space width' : 'tooth thickness') +
+                    ' band (' + band.toFixed(4) + ') — the band cannot absorb it. Switch TOLERANCE ' +
+                    'TREATMENT to SHIFT THE MID to get the aim size with the scatter reported, ' +
+                    'or tighten the measured range.');
+  }
+  if (cp.smin <= 0)
+    throw new Error('HT distortion: ' + (p.stype !== 'external' ? 'space width' : 'tooth thickness') +
+                    ' ≤ 0 — distortion too large');
+  // Diameters — geometry is cut at the MID of this stage's own band.
+  const dMid = fwd ? D.mid : -D.mid;
+  cp.Dtip  = p.Dtip  + dMid;
+  cp.Droot = p.Droot + dMid;
+  const bHi = narrow ? D.hi : D.mid, bLo = narrow ? D.lo : D.mid;
+  const shiftBand = B => (B && !isNaN(B.mid))
+    ? { mid: B.mid + dMid,
+        top: fwd ? B.top + bHi : B.top - bHi,
+        bot: fwd ? B.bot + bLo : B.bot - bLo }
+    : B;
+  cp.DtipBand  = shiftBand(p.DtipBand);
+  cp.DrootBand = shiftBand(p.DrootBand);
+  if ((p.stype !== 'external') ? (cp.Droot <= cp.Dtip) : (cp.Droot >= cp.Dtip))
+    throw new Error('HT distortion: root ∅ crosses the tip ∅ — distortion too large');
+  // Root fillet — concave corner: material growing shrinks it, shrinking grows it.
+  // d.mid is SIGNED, so the one expression covers both directions.
+  if (gFin.fullFillet) {
+    cp.rfil = 0; cp.DForm = 0;                      // auto full fillet of the offset profile = the exact offset
+    cp.rootMode = 'auto';
+  } else {
+    const rf = gFin.rfUsed + (fwd ? -d.mid : d.mid);
+    if (rf <= 1e-4)
+      throw new Error('HT distortion: mean distortion ≥ root fillet R' + gFin.rfUsed.toFixed(3) +
+                      ' — fillet vanishes');
+    cp.rfil = rf; cp.DForm = 0;                     // the fillet carries the offset
+    if (cp.rootMode === 'auto') cp.rootMode = 'flat';
+  }
+  // Tooth-tip BREAK carried across unchanged — same reasoning as coating.
+  cp.htStage = target;
+  cp.fname = p.fname.replace(/\.dxf$/i, '') + (target === 'pre' ? '_PRE_HT' : '_POST_HT');
+  return cp;
+}
+
+function generateHtDXF(stage) {
+  const p = getParams();
+  const err = validate(p);
+  if (err) { setStatus('ERROR: ' + err, 'err'); return; }
+  if (!p.htOn) { setStatus('ERROR: turn HT distortion ON in section 08 first', 'err'); return; }
+
+  document.getElementById('btn-gen').disabled = true;
+  setStatus('GENERATING ' + stage.toUpperCase() + '-HT STAGE…');
+  setTimeout(() => {
+    try {
+      const g  = buildGeometry(p);                  // drawing stage — resolves the s/t band
+      const cp = htParams(p, g, stage);
+      const isDrawingStage = (stage === p.htDir);
+      const fname = (isDrawingStage ? p.fname.replace(/\.dxf$/i, '') + '_' +
+                     (stage === 'pre' ? 'PRE_HT' : 'POST_HT') : cp.fname) + '.dxf';
+      const dxf = buildDXFString(cp);
+      const dl  = saveBlob(dxf, fname, 'application/dxf');
+      const gc  = buildGeometry(cp);
+      const sc  = htScatter(p, g);
+      setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-HT${isDrawingStage ? ' (= the drawing stage, unshifted)' : ' · d̄ ' + fromMM(sc.d.mid, 4) + '/surface'}` +
+                ` · TIP Ø${fromMM(cp.Dtip,4)} · ROOT Ø${fromMM(cp.Droot,4)}` +
+                ` · ${gc.internal?'BTWN':'OVER'} PINS MID ${gc.pinM !== null ? fromMM(gc.pinM,4) : '—'}${unitSuffix()}` +
+                ` · SCATTER ${isFinite(sc.pct) ? sc.pct.toFixed(1) : '∞'}% ${p.htMode === 'narrow' ? 'APPLIED' : 'REPORTED ONLY'}`, 'ok');
+      addFallbackLink(dl, fname);
+      histRecord('ht-' + stage);
+    } catch (e) {
+      setStatus('ERROR: ' + e.message, 'err');
+    }
+    document.getElementById('btn-gen').disabled = false;
+  }, 10);
+}
+
+// Gauge for either HT stage — same reasoning as the coating gauges: the gauge is
+// the MATING spline, so it is derived from the stage's own band and the existing
+// validated gauge machinery does the rest unchanged.
+function generateHtGaugeDXF(stage, which) {
+  const p = getParams();
+  if (p.gear) { setStatus('ERROR: GO/NO-GO spline gauges do not apply to GEARS', 'err'); return; }
+  const err = validate(p);
+  if (err) { setStatus('ERROR: ' + err, 'err'); return; }
+  if (!p.htOn) { setStatus('ERROR: turn HT distortion ON in section 08 first', 'err'); return; }
+
+  document.getElementById('btn-gen').disabled = true;
+  setStatus('GENERATING ' + stage.toUpperCase() + '-HT ' + (which === 'go' ? 'GO' : 'NO-GO') + ' GAUGE…');
+  setTimeout(() => {
+    try {
+      const g   = buildGeometry(p);
+      const cp  = htParams(p, g, stage);
+      const gc  = buildGeometry(cp);                // the stage the gauge must check
+      const gp  = gaugeParams(cp, gc, which);
+      // The stage suffix can already be in there: htParams stamps it onto cp.fname
+      // and gaugeParams builds the gauge name FROM that, so a plain append gave
+      // "..._PRE_HT_GO_GAUGE_PRE_HT" on the derived stage and "..._GO_GAUGE_POST_HT"
+      // on the drawing stage — doubled in one case, and in a different position in
+      // the other. Strip then append, so the suffix appears exactly once and always
+      // last, and the two stages sort together in a folder.
+      const sfx = (stage === 'pre' ? '_PRE_HT' : '_POST_HT');
+      gp.fname  = gp.fname.split(sfx).join('') + sfx;
+      buildGaugeGeom(gp);
+      const dxf = buildDXFString(gp);
+      const fname = gp.fname + '.dxf';
+      const dl = saveBlob(dxf, fname, 'application/dxf');
+      const effWarn = (which === 'go' && !(p.teff > 0)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-HT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${effWarn}`, 'ok');
+      addFallbackLink(dl, fname);
+      histRecord('ht-' + stage + '-' + which);
+    } catch (e) { setStatus('ERROR: ' + e.message, 'err'); }
+    document.getElementById('btn-gen').disabled = false;
+  }, 10);
+}
+
 function generateSoftDXF() {
   const p = getParams();
   const err = validate(p);
@@ -4139,6 +4574,79 @@ function generateCoatTable() {
             eaten > 60 ? 'err' : 'ok');
 }
 
+// ── HT DISTORTION TABLE — the two stages side by side ───────────────
+// Same construction as the coating table: both columns come from buildFinishRows,
+// so they cannot drift apart. The header rows carry the measured distortion in the
+// basis it was ENTERED in as well as converted per surface — the conversion is the
+// step most likely to be got wrong by hand, so the sheet shows its working.
+function generateHtTable() {
+  const p = getParams();
+  const err = validate(p);
+  if (err) { setStatus('ERROR: ' + err, 'err'); return; }
+  if (!p.htOn) { setStatus('ERROR: turn HT distortion ON in section 08 first', 'err'); return; }
+
+  let pre, post, gPre, gPost, WPre, WPost, g, sc;
+  try {
+    g    = buildGeometry(p);
+    sc   = htScatter(p, g);
+    pre  = htParams(p, g, 'pre');   post = htParams(p, g, 'post');
+    gPre = buildGeometry(pre);      gPost = buildGeometry(post);
+    WPre = baseTangent(pre, gPre, p.spank);
+    WPost= baseTangent(post, gPost, p.spank);
+  } catch (e) { setStatus('ERROR: ' + e.message, 'err'); return; }
+
+  const inch = p.tunit === 'inch';
+  const F  = v => (v === null || isNaN(v)) ? '-' : (inch ? (v/25.4).toFixed(5) : v.toFixed(4));
+  const UN = inch ? 'IN' : 'MM';
+  const rowsPre  = buildFinishRows(pre,  gPre,  WPre,  null);
+  const rowsPost = buildFinishRows(post, gPost, WPost, null);
+  const labels = [];
+  rowsPre.forEach(r => { if (!labels.includes(r[0])) labels.push(r[0]); });
+  rowsPost.forEach(r => { if (!labels.includes(r[0])) labels.push(r[0]); });
+  const look = (rows, lab) => { const r = rows.find(x => x[0] === lab); return r ? r[r.length - 1] : '-'; };
+
+  const narrow   = (p.htMode === 'narrow');
+  const basisLab = { surface: 'PER SURFACE', dia: 'ON DIA', pins: 'ON PIN MEASUREMENT' }[p.htBasis] || 'PER SURFACE';
+  const wLab     = g.internal ? 'SPACE WIDTH' : 'TOOTH THICKNESS';
+  const pctTxt   = isFinite(sc.pct) ? sc.pct.toFixed(1) : 'OVER 100';
+  const htRows = [
+    ['DIRECTION IN HEAT TREATMENT',            p.htSign === 'shrink' ? 'SHRINKAGE' : 'GROWTH',
+                                               p.htSign === 'shrink' ? 'SHRINKAGE' : 'GROWTH'],
+    ['DISTORTION ENTERED AS',                  basisLab, basisLab],
+    ['DISTORTION MINI - AS ENTERED',           F(p.htMin),  F(p.htMin)],
+    ['DISTORTION MAXI - AS ENTERED',           F(p.htMax),  F(p.htMax)],
+    ['DISTORTION MINI - PER SURFACE (SIGNED)', F(sc.d.lo),  F(sc.d.lo)],
+    ['DISTORTION MAXI - PER SURFACE (SIGNED)', F(sc.d.hi),  F(sc.d.hi)],
+    ['DISTORTION MEAN d - PER SURFACE',        F(sc.d.mid), F(sc.d.mid)],
+    ['ON ANY DIA - 2d MEAN',                   F(2 * sc.d.mid), F(2 * sc.d.mid)],
+    ['STAGE THE DRAWING DESCRIBES',            p.htDir === 'pre' ? 'THIS COLUMN' : '', p.htDir === 'post' ? 'THIS COLUMN' : ''],
+    ['TOLERANCE TREATMENT',                    narrow ? 'NARROW THE BAND' : 'SHIFT THE MID',
+                                               narrow ? 'NARROW THE BAND' : 'SHIFT THE MID'],
+    [wLab + ' BAND WIDTH',                     F(pre.smax - pre.smin), F(post.smax - post.smin)],
+    ['SCATTER AS % OF ' + wLab + ' BAND - ' + (narrow ? 'APPLIED' : 'REPORTED ONLY'),
+                                               pctTxt, pctTxt],
+    ['---', '', ''],
+  ];
+  const rows = htRows.concat(labels.map(lab => [lab, look(rowsPre, lab), look(rowsPost, lab)]));
+
+  const base   = p.fname.replace(/\.dxf$/i, '');
+  const kind   = (g.internal ? 'INTERNAL' : 'EXTERNAL') + ' SPLINE';
+  const title  = base + ' — ' + kind + ' · HT DISTORTION · ' +
+                 (p.htSign === 'shrink' ? 'SHRINKAGE' : 'GROWTH') + ' ' +
+                 F(p.htMin) + '–' + F(p.htMax) + ' ' + UN + ' ' + basisLab.toLowerCase() +
+                 ' · drawing = ' + p.htDir.toUpperCase() + '-HT · ' + (narrow ? 'band narrowed' : 'mid shifted');
+  const header = ['PARAMETER', 'PRE-HT (CUT TO)', 'POST-HT (FINISHED)'];
+  const titleRow = ['SPLINE DATA - HT DISTORTION - ' + base.toUpperCase(), '', ''];
+  const csv = [titleRow, header].concat(rows).map(r => r.join(',')).join('\r\n');
+  const tsv = [header].concat(rows).map(r => r.join('\t')).join('\r\n');
+  const w = window.open('', '_blank');
+  if (!w) { setStatus('ERROR: pop-up blocked — allow pop-ups for the table', 'err'); return; }
+  w.document.write(buildStageTableHTML('SPLINE DATA (PRE / POST HT DISTORTION)', title, header, rows, csv, tsv, base + '_HT_TABLE.csv', -1));
+  w.document.close();
+  setStatus(`✓ HT TABLE OPENED — d̄ ${fromMM(sc.d.mid,4)}${unitSuffix()}/surface · scatter ${pctTxt}% of the ${wLab.toLowerCase()} band · ${narrow ? 'APPLIED (band narrowed)' : 'REPORTED ONLY (mid shifted)'}`,
+            (narrow && sc.pct > 60) ? 'err' : 'ok');
+}
+
 // ── GO / NO-GO SPLINE GAUGES ────────────────────────────────────────
 // GO = FULL-FORM mating profile at the part's MAX EFFECTIVE limit (composite
 // check: a part that passes GO will assemble, pitch/profile/lead errors
@@ -4631,6 +5139,8 @@ function buildReportHTML(p, g, imgData) {
                     : p.rootMode === 'fillet' ? 'SINGLE FILLET R'
                     :                           'AUTO';
 
+  const htSc = p.htOn ? htScatterSafe(p, g) : null;
+
   const chkRows = [
     secRow('Size &amp; flank geometry'),
     txtRow('Number of teeth z',
@@ -4696,6 +5206,31 @@ function buildReportHTML(p, g, imgData) {
                                            : 'MACHINED (pre-coating) part', '—') : '',
     p.coatOn ? txtRow('Tooth tip break under coating',
                       'carried across unchanged', 'edge break, not functional') : '',
+
+    p.htOn ? secRow('HT distortion') : '',
+    p.htOn ? txtRow('Direction in heat treatment',
+                    p.htSign === 'shrink' ? 'SHRINKAGE — material pulls inward'
+                                          : 'GROWTH — material moves outward', '—') : '',
+    p.htOn ? txtRow('Distortion mini / maxi as entered',
+                    L(p.htMin, 4) + ' / ' + L(p.htMax, 4) + ' ' + UN,
+                    { surface: 'per surface', dia: 'on ∅', pins: 'on the pin measurement' }[p.htBasis] || 'per surface') : '',
+    p.htOn ? txtRow('Distortion mini / maxi per surface',
+                    htSc ? L(htSc.d.lo, 4) + ' / ' + L(htSc.d.hi, 4) + ' ' + UN : '— (not evaluable)',
+                    'signed · + = outward') : '',
+    p.htOn ? txtRow('Distortion mean d̄ · on any ∅ 2d̄',
+                    htSc ? L(htSc.d.mid, 4) + ' · ' + L(2 * htSc.d.mid, 4) + ' ' + UN : '—', '—') : '',
+    p.htOn ? txtRow('Values above describe the',
+                    p.htDir === 'post' ? 'FINISHED (post-HT) part'
+                                       : 'AS-CUT (pre-HT) part', '—') : '',
+    p.htOn ? txtRow('Tolerance treatment',
+                    p.htMode === 'narrow' ? 'NARROW THE BAND' : 'SHIFT THE MID',
+                    p.htMode === 'narrow' ? 'scatter applied to the limits'
+                                          : 'band width kept · scatter not applied') : '',
+    p.htOn ? txtRow('Scatter as % of the ' + swName + ' band',
+                    htSc ? (isFinite(htSc.pct) ? htSc.pct.toFixed(1) + ' %' : 'over 100 %') : '—',
+                    p.htMode === 'narrow' ? 'applied' : 'reported only') : '',
+    p.htOn ? txtRow('Scope of this compensation',
+                    'SIZE only', 'no out-of-round / lead / index') : '',
 
     secRow('Build &amp; output'),
     txtRow('Flank segments / side', p.nsegs, '—'),
@@ -4839,7 +5374,8 @@ const FIELD_IDS = ['partno','fname','fname_auto','stype','sizemode','anchor','z'
                    'Dtip_mode','Dtip_let','Dtip_gr','Droot_mode','Droot_let','Droot_gr',
                    'Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
                    'ptype','beta','hand','xn','ganchor',
-                   'coat_on','coat_dir','coat_min','coat_max'];
+                   'coat_on','coat_dir','coat_min','coat_max',
+                   'ht_on','ht_dir','ht_sign','ht_basis','ht_mode','ht_min','ht_max'];
 
 // ── HISTORY — every part generated on this machine (06.08.2026) ─
 // "A log of the splines/gears that were generated, with the exact values used."
@@ -4885,8 +5421,14 @@ function histSummary(f) {
              : f.sizemode === 'module' ? 'm ' + f.module
              : '∅ ' + f.D;
   const coat = f.coat_on === 'on' ? ' · COATED ' + (f.coat_min || '?') + '–' + (f.coat_max || '?') : '';
+  const ht   = f.ht_on === 'on'
+             ? ' · HT ' + (f.ht_sign === 'shrink' ? 'SHRINK ' : 'GROW ') +
+               (f.ht_min || '?') + '–' + (f.ht_max || '?') +
+               ' ' + ({ surface:'/surf', dia:'/∅', pins:'/pins' }[f.ht_basis] || '/surf') +
+               ' ' + (f.ht_mode === 'shift' ? 'mid' : 'narrow')
+             : '';
   return `${gear ? 'GEAR' : 'SPLINE'} · ${f.stype === 'external' ? 'ext' : 'int'} · z ${f.z} · ${size} · ` +
-         `tip ${f.Dtip || '—'} · root ${f.Droot || '—'} [${un}]${pat}${coat}`;
+         `tip ${f.Dtip || '—'} · root ${f.Droot || '—'} [${un}]${pat}${coat}${ht}`;
 }
 // kind: which output produced this ('dxf', 'soft', 'go', 'nogo', 'coat-pre', …).
 // announce=true reports to the status bar (manual saves); generators stay quiet
@@ -4926,7 +5468,10 @@ function histRender() {
   const kindLab = { dxf:'DXF', soft:'SOFT', go:'GO', nogo:'NO-GO', manual:'SAVED',
                     'coat-pre':'PRE-COAT', 'coat-post':'POST-COAT',
                     'coat-pre-go':'PRE-GO', 'coat-pre-nogo':'PRE-NO-GO',
-                    'coat-post-go':'POST-GO', 'coat-post-nogo':'POST-NO-GO' };
+                    'coat-post-go':'POST-GO', 'coat-post-nogo':'POST-NO-GO',
+                    'ht-pre':'PRE-HT', 'ht-post':'POST-HT',
+                    'ht-pre-go':'PRE-HT GO', 'ht-pre-nogo':'PRE-HT NO-GO',
+                    'ht-post-go':'POST-HT GO', 'ht-post-nogo':'POST-HT NO-GO' };
   box.innerHTML = list.map(e => {
     const d = new Date(e.ts);
     const when = isNaN(d) ? '' : d.toLocaleDateString('en-GB') + ' ' +
@@ -5086,6 +5631,7 @@ onAnchorChange();   // sync the enabled/disabled state, then onChange()
 onPatChange();      // sync the missing-feature position field to the restored pattern
 onRootModeChange(); // sync the root fillet field to the restored root style
 onCoatChange();     // sync the coating section + its output buttons
+onHtChange();       // sync the HT distortion section + its output buttons
 setFnameAuto(fnameIsAuto());   // light the ↺ button to match the restored follow/typed state
 histRender();       // draw the generated-parts log
 initLimOrder();     // rebuild the limits-row typed-pair bookkeeping from restored values
