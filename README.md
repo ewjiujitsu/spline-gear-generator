@@ -16,7 +16,7 @@ disk and it works exactly as it does when hosted.
 - **Coating stages** — enter a per-surface coating thickness band and get the
   pre-coating size to machine and the post-coating finished size, with the
   tolerance consequences worked out
-- **GO / NO-GO gauges** — the mating profile at the max-effective and min-actual limits
+- **GO / NO-GO gauges** — the mating profile at the max-material effective and least-material actual limits, with the effective pair carried through the coating and HT stages
 - **Tables** — rough vs finish, finished data, gear data, machine setup and coating,
   each exportable as `.csv` for CAD table import
 - **History** — every part you generate is logged locally with the complete input

@@ -639,7 +639,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v28 · SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v29 · SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -944,6 +944,24 @@
               <input type="text" inputmode="decimal" id="smax" value="3.2" min="0.001" step="0.0001" oninput="onChange()">
             </div>
           </div>
+          <!-- EFFECTIVE limits (v29, 28.09.2026). The ACTUAL pair above is what the flanks
+               are cut to; the EFFECTIVE pair is the composite fit — index, profile and lead
+               errors included — that the GO gauge checks. It used to be a single field in
+               section 06 and was printed in no table. Same read order: mini left, maxi right.
+               The GO gauge takes the MAX-MATERIAL one (internal: mini · external: maxi);
+               the other is printed on the tables as (REF). Both optional. -->
+          <div class="field-row">
+            <div class="field">
+              <div class="field-label" id="lbl-effmin">Eff. space width, mini — GO gauge <span class="unit">[mm]</span></div>
+              <div class="field-name" id="nm-effmin">s_v min · blank = GO uses act. mini</div>
+              <input type="text" inputmode="decimal" id="effmin" value="" min="0" step="0.0001" oninput="onChange()">
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-effmax">Eff. space width, maxi — reference <span class="unit">[mm]</span></div>
+              <div class="field-name" id="nm-effmax">s_v max · optional · printed (REF)</div>
+              <input type="text" inputmode="decimal" id="effmax" value="" min="0" step="0.0001" oninput="onChange()">
+            </div>
+          </div>
           <div class="field-row tri" id="row-meas">
             <div class="field">
               <div class="field-label" id="lbl-mmin">Between pins, mini <span class="unit">[mm]</span></div>
@@ -1063,11 +1081,6 @@
         <div class="fields">
           <div class="field-row">
             <div class="field">
-              <div class="field-label" id="lbl-teff">Max. effective tooth thickness — GO gauge <span class="unit">[mm]</span></div>
-              <div class="field-name" id="nm-teff">s_v max · blank = use actual maxi</div>
-              <input type="text" inputmode="decimal" id="teff" value="" min="0" step="0.0001" oninput="onChange()">
-            </div>
-            <div class="field">
               <div class="field-label">Gauge root ↔ part tip clearance <span class="unit">[mm]</span></div>
               <div class="field-name">c (blank = 0.25)</div>
               <input type="text" inputmode="decimal" id="gclr" value="" min="0" step="0.01" oninput="onChange()">
@@ -1076,9 +1089,10 @@
           <div class="field-row">
             <div class="field field-wide">
               <div style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.6">
-                GO = FULL-FORM mating profile at the MAX EFFECTIVE limit (enter t_v max / s_v min from the
-                sheet; blank falls back to the ACTUAL limit = no form allowance, flagged in the report).
-                NO-GO = mating profile at the MIN ACTUAL limit &mdash; make it a SECTOR gauge (2 opposing
+                GO = FULL-FORM mating profile at the MAX-MATERIAL EFFECTIVE limit from section 04
+                (hub: eff. space width mini s_v min &middot; shaft: eff. tooth thickness maxi t_v max; blank
+                falls back to the ACTUAL limit = no form allowance, flagged). NO-GO = mating profile at the
+                LEAST-MATERIAL ACTUAL limit (hub: act. maxi &middot; shaft: act. mini) &mdash; make it a SECTOR gauge (2 opposing
                 sectors, ~2 teeth) so index errors can't mask it; the DXF is the full profile.
                 Gauge teeth reach the part FORM &empty;; gauge root clears the part tip &empty; by c; involute held
                 true over the full engagement. Gauge-maker tolerance + wear allowance go INTO the part zone.
@@ -1304,8 +1318,8 @@
       <!-- Notes -->
       <div class="standard-ref">
         <strong>NOTE:</strong> Enter values straight from the GSSpline data sheet — INTERNAL or EXTERNAL column to match the selected type.<br>
-        <strong>Internal:</strong> s maxi/mini = ACTUAL space width limits (e.g. 3.142 +0.058/+0.018 → 3.200 / 3.160) · Di / Dri drawing values (46.00 / 50.40) · check BETWEEN pins.<br>
-        <strong>External:</strong> t maxi/mini = ACTUAL tooth thickness limits (e.g. 3.142 −0.018/−0.058 → 3.124 / 3.084) · Do / Dre drawing values (50.00 / 45.60) · check OVER pins.<br>
+        <strong>Internal:</strong> s maxi/mini = ACTUAL space width limits (e.g. 3.142 +0.058/+0.018 → 3.200 / 3.160) · s_v mini/maxi = EFFECTIVE limits (s_v min feeds the GO gauge) · Di / Dri drawing values (46.00 / 50.40) · check BETWEEN pins.<br>
+        <strong>External:</strong> t maxi/mini = ACTUAL tooth thickness limits (e.g. 3.142 −0.018/−0.058 → 3.124 / 3.084) · t_v mini/maxi = EFFECTIVE limits (t_v max feeds the GO gauge) · Do / Dre drawing values (50.00 / 45.60) · check OVER pins.<br>
         Geometry is cut at the MID limit automatically.<br>
         <strong>No s/t on the sheet?</strong> Set <strong>Flank anchor → MEASUREMENT over/between pins</strong> and enter the pin-measurement maxi/mini + pin ∅ — the tool back-solves s/t (shown greyed) and cuts at the mid.<br>
         <strong>D / Db</strong> = pitch &amp; base diameter exactly as printed (do NOT compute from the rounded module).<br>
@@ -1551,7 +1565,7 @@ function isInch() { return document.getElementById('tunit').value === 'inch'; }
 // Every LINEAR input field [mm]/[in]. NOT here: z, module (metric designation;
 // holds P [1/in] in dp mode), angles (alpha/beta/start), xn, nsegs, spank.
 const LINEAR_IDS = ['Dtip','Droot','Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
-                    'DForm','D','Db','smax','smin','mmax','mmin','rfil','rtip','pin','allow','teff','gclr',
+                    'DForm','D','Db','smax','smin','effmin','effmax','mmax','mmin','rfil','rtip','pin','allow','gclr',
                     'coat_min','coat_max','ht_min','ht_max'];
 let _lastUnit = null;   // set at init; onUnitChange converts only on a real flip
 function onUnitChange() {
@@ -1909,11 +1923,19 @@ function getParams() {
   // Alternate transform: widen the anchored feature by one full-Z pitch where it
   // merged — GAP mode widens the external TOOTH into the land, TOOTH mode widens
   // the internal SPACE across the absent tooth (see the tooth-pattern note above).
-  let smaxOut = smax, sminOut = smin;
+  // EFFECTIVE limits (v29): optional and independent — NO single-value mirror, a blank
+  // means "not on the sheet", never a copy of the other. They take the SAME transform
+  // as the actual pair, applied here once (gaugeParams used to add it at use, to the
+  // GO limit only), so every stage and table sees one convention.
+  const effMin = evalNum(document.getElementById('effmin').value) * UF;
+  const effMax = evalNum(document.getElementById('effmax').value) * UF;
+  let smaxOut = smax, sminOut = smin, effMinOut = effMin, effMaxOut = effMax;
   if (!isNaN(D) && ((altGap && stype === 'external') || (altTooth && stype !== 'external'))) {
     const pitchFull = Math.PI * D / z;   // z is still the FULL count here
     smaxOut = smax + pitchFull;
     sminOut = smin + pitchFull;
+    effMinOut = effMin + pitchFull;
+    effMaxOut = effMax + pitchFull;
   }
   // ── GEAR MODE (spur / helical, external) ──────────────────────────
   // Derive the TRANSVERSE-section equivalents and hand them to the same
@@ -1981,6 +2003,9 @@ function getParams() {
     smaxRaw: smax, sminRaw: smin,                               // AS TYPED [mm], before the alternate/gear transform —
                                                                 // the report's input column must show what was entered,
                                                                 // not what the engine derived from it (10.08.2026)
+    // EFFECTIVE space width (int) / tooth thickness (ext) [mm], same convention as
+    // smax/smin; NaN = not entered. Gears carry none (no spline gauge; W/balls/xn).
+    effMin: gear ? NaN : effMinOut, effMax: gear ? NaN : effMaxOut,
     mmax, mmin,                                                 // over/between pins maxi/mini [mm]
     get sw() { return (this.smax + this.smin) / 2; },           // geometry is cut at MID limit
     // AUTO NEUTRALISES r (06.08.2026). The input is greyed in AUTO, so the
@@ -2026,7 +2051,6 @@ function getParams() {
     allow: evalNum(document.getElementById('allow').value) * UF || 0,  // soft-stage allowance a: added to base tangent W AND root ∅ (machinist convention; = 2q per face)
     spank: Math.round(evalNum(document.getElementById('spank').value)) || 0,    // base-tangent span teeth k; 0/blank = auto
     tunit: document.getElementById('tunit').value,                   // master units switch: 'mm' | 'inch' (inputs, readouts, tables, report)
-    teff:  evalNum(document.getElementById('teff').value) * UF,   // GO-gauge effective limit t_v max / s_v min [mm]; NaN = use actual
     gclr:  evalNum(document.getElementById('gclr').value) * UF,   // gauge root ↔ part tip clearance [mm]; NaN = 0.25
   };
 }
@@ -2103,10 +2127,47 @@ function validate(p) {
     if (p.htBasis === 'pins' && !(p.pin > 0))
       return 'HT distortion: pin ∅ (section 04) required to read a distortion given on the pin measurement';
   }
-  if (!isNaN(p.teff) && p.teff<=0)     return 'Effective limit must be > 0 (or blank)';
+  { const e = effErr(p); if (e) return e; }
   if (!isNaN(p.gclr) && p.gclr<0)      return 'Gauge clearance ≥ 0 (or blank)';
   if (p.spank !== 0 && (p.spank < 2 || p.spank > p.z - 1)) return 'Base tangent teeth k must be 2 … z−1 (or blank = auto)';
   if (isNaN(p.nsegs)||p.nsegs<4)      return 'n_segs must be ≥ 4';
+  return null;
+}
+
+// ── EFFECTIVE LIMITS (v29, 28.09.2026) ────────────────────────────────
+// The GO gauge's limit is the MAX-MATERIAL effective one: internal part → effective
+// space width MINI, external part → effective tooth thickness MAXI. NaN = not entered.
+function goEff(p)   { return p.stype !== 'external' ? p.effMin : p.effMax; }
+function hasGoEff(p){ return goEff(p) > 0; }
+function hasEff(p)  { return !isNaN(p.effMin) || !isNaN(p.effMax); }
+// Effective limits are checked against the ACTUAL band they belong to. The effective
+// variation λ is never negative, so (ISO 4156, as applied to 1089089-A: λ = actual
+// mini − effective mini, effective maxi = actual maxi − λ):
+//   internal — the effective space width sits AT OR BELOW the actual: eff ≤ act
+//   external — the effective tooth thickness sits AT OR ABOVE it:     eff ≥ act
+// A pair on the wrong side is almost always actual/effective swapped off the sheet,
+// so it stops here rather than cutting a gauge from it. Pins anchor: the actual band
+// only exists once the engine has solved it — build it; if the build fails, stay
+// quiet, the caller's own build reports the real error.
+function effErr(p) {
+  if (!hasEff(p)) return null;
+  const internal = p.stype !== 'external';
+  const nm = internal ? 'space width s_v' : 'tooth thickness t_v';
+  if (!isNaN(p.effMin) && p.effMin <= 0) return 'Effective ' + nm + ' mini must be > 0 (or blank)';
+  if (!isNaN(p.effMax) && p.effMax <= 0) return 'Effective ' + nm + ' maxi must be > 0 (or blank)';
+  if (p.effMin > p.effMax + 1e-9)        return 'Effective ' + nm + ' mini is greater than maxi';
+  let aMin = p.smin, aMax = p.smax;
+  if (p.anchor === 'pins') {
+    try { const g = buildGeometry(p); aMin = g.swMin; aMax = g.swMax; } catch (e) { return null; }
+  }
+  const L = v => fromMM(v, 4) + unitSuffix();
+  const wrong = (eff, act) => internal ? eff > act + 1e-9 : eff < act - 1e-9;
+  const why = internal ? ' — on an INTERNAL spline the effective space width sits at or BELOW the actual (λ ≥ 0). Actual and effective swapped?'
+                       : ' — on an EXTERNAL spline the effective tooth thickness sits at or ABOVE the actual (λ ≥ 0). Actual and effective swapped?';
+  if (!isNaN(p.effMin) && wrong(p.effMin, aMin))
+    return 'Effective ' + nm + ' mini ' + L(p.effMin) + (internal ? ' is ABOVE' : ' is BELOW') + ' the actual mini ' + L(aMin) + why;
+  if (!isNaN(p.effMax) && wrong(p.effMax, aMax))
+    return 'Effective ' + nm + ' maxi ' + L(p.effMax) + (internal ? ' is ABOVE' : ' is BELOW') + ' the actual maxi ' + L(aMax) + why;
   return null;
 }
 
@@ -2249,7 +2310,7 @@ function onPartTypeChange() {
   });
   // GEAR mode: spline GO/NO-GO gauges do not apply (master gear / rolling test)
   // — buttons are already gated, grey the section-06 inputs too (10.07.2026)
-  ['teff','gclr'].forEach(id => {
+  ['effmin','effmax','gclr'].forEach(id => {
     document.getElementById(id).disabled = gear;
     fieldOf(id).classList.toggle('derived', gear);
   });
@@ -2355,8 +2416,10 @@ function onTypeChange() {
     set('rdk-pins',     'Between pins mid (as cut)');
     set('rdk-pins-min', 'Between pins mini (check!)');
     set('rdk-soft',     'Soft stage — between pins mid');
-    set('lbl-teff',  'Min. effective space width — GO gauge <span class="unit">[mm]</span>');
-    set('nm-teff',   'e_v min · blank = use actual mini');
+    set('lbl-effmin', 'Eff. space width, mini — GO gauge <span class="unit">[mm]</span>');
+    set('nm-effmin',  's_v min · blank = GO uses act. mini');
+    set('lbl-effmax', 'Eff. space width, maxi — reference <span class="unit">[mm]</span>');
+    set('nm-effmax',  's_v max · optional · printed (REF)');
   } else {
     set('lbl-dtip',  'Major diameter (tooth tips) <span class="unit">[mm]</span>');
     set('nm-dtip',   'Do');
@@ -2377,8 +2440,10 @@ function onTypeChange() {
     set('rdk-pins',     'Over pins mid (as cut)');
     set('rdk-pins-min', 'Over pins mini (check!)');
     set('rdk-soft',     'Soft stage — over pins mid');
-    set('lbl-teff',  'Max. effective tooth thickness — GO gauge <span class="unit">[mm]</span>');
-    set('nm-teff',   's_v max · blank = use actual maxi');
+    set('lbl-effmin', 'Eff. tooth thickness, mini — reference <span class="unit">[mm]</span>');
+    set('nm-effmin',  't_v min · optional · printed (REF)');
+    set('lbl-effmax', 'Eff. tooth thickness, maxi — GO gauge <span class="unit">[mm]</span>');
+    set('nm-effmax',  't_v max · blank = GO uses act. maxi');
   }
   syncClock12Label();   // the start-angle hint follows the TOGGLE now, not the type
   onChange(true);
@@ -3697,6 +3762,7 @@ function softParams(p, gFin) {
   sp.smax = gFin.swMax + sgn * dw;
   sp.smin = gFin.swMin + sgn * dw;
   sp.mmax = NaN; sp.mmin = NaN;
+  sp.effMin = NaN; sp.effMax = NaN;            // a roughed spline is never GO-gauged — its table column prints '-' (v29)
   sp.Droot = p.Droot + sgn * p.allow;          // root ±a radial (spur/spline: a = 2q bit-exact)
   if (sp.smin <= 0)
     throw new Error('soft stage: ' + (internal ? 'space width' : 'tooth thickness') + ' ≤ 0 — allowance too large');
@@ -3760,6 +3826,13 @@ function coatParams(p, gFin, target) {
   cp.smax = fwd ? gFin.swMax + T.hi : gFin.swMax - T.hi;
   cp.smin = fwd ? gFin.swMin + T.lo : gFin.swMin - T.lo;
   cp.mmax = NaN; cp.mmin = NaN;
+  // EFFECTIVE limits move EXACTLY as the actual limit on the same side — mini with the
+  // mini, maxi with the maxi (v29, 28.09.2026). Until v29 they were not carried at all:
+  // the derived stage's GO gauge was cut to the DRAWING stage's effective limit, 0.028
+  // small on the default 30° hub pre-coating at c 0.008–0.012 — it would have passed
+  // parts that do not assemble once coated. NaN (not entered) stays NaN.
+  cp.effMin = fwd ? p.effMin + T.lo : p.effMin - T.lo;
+  cp.effMax = fwd ? p.effMax + T.hi : p.effMax - T.hi;
   if (cp.smin > cp.smax) {
     // Quote the number the CHECK actually uses. It was previously written out as
     // 2(c max − c min), which omits the 1/cos αp the band shift carries — so the
@@ -3775,6 +3848,9 @@ function coatParams(p, gFin, target) {
   if (cp.smin <= 0)
     throw new Error('coating: ' + (p.stype !== 'external' ? 'space width' : 'tooth thickness') +
                     ' ≤ 0 — coating too thick');
+  if (cp.effMin > cp.effMax)
+    throw new Error('coating: the coating variation eats the whole effective ' +
+                    (p.stype !== 'external' ? 'space width' : 'tooth thickness') + ' band — tighten the coating range or open the tolerance.');
   // Diameters — geometry is cut at the MID of this stage's own band.
   const dMid = fwd ? D.mid : -D.mid;
   cp.Dtip  = p.Dtip  + dMid;
@@ -3871,7 +3947,7 @@ function generateCoatGaugeDXF(stage, which) {
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
-      const effWarn = (which === 'go' && !(p.teff > 0)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
       setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-COAT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('coat-' + stage + '-' + which);
@@ -4031,6 +4107,10 @@ function htParams(p, gFin, target) {
   cp.smax = fwd ? gFin.swMax + tHi : gFin.swMax - tHi;
   cp.smin = fwd ? gFin.swMin + tLo : gFin.swMin - tLo;
   cp.mmax = NaN; cp.mmin = NaN;
+  // EFFECTIVE limits: same shift as the actual limit on the same side (v29 — see
+  // coatParams; before v29 the derived stage's GO gauge kept the drawing stage's value).
+  cp.effMin = fwd ? p.effMin + tLo : p.effMin - tLo;
+  cp.effMax = fwd ? p.effMax + tHi : p.effMax - tHi;
   if (cp.smin > cp.smax) {                          // only reachable in NARROW
     const eats = T.hi - T.lo;                       // = 2(d max − d min)/cos αp
     const band = gFin.swMax - gFin.swMin;
@@ -4043,6 +4123,9 @@ function htParams(p, gFin, target) {
   if (cp.smin <= 0)
     throw new Error('HT distortion: ' + (p.stype !== 'external' ? 'space width' : 'tooth thickness') +
                     ' ≤ 0 — distortion too large');
+  if (cp.effMin > cp.effMax)                        // only reachable in NARROW
+    throw new Error('HT distortion: the measured scatter eats the whole effective ' +
+                    (p.stype !== 'external' ? 'space width' : 'tooth thickness') + ' band — switch to SHIFT THE MID or tighten the range.');
   // Diameters — geometry is cut at the MID of this stage's own band.
   const dMid = fwd ? D.mid : -D.mid;
   cp.Dtip  = p.Dtip  + dMid;
@@ -4138,7 +4221,7 @@ function generateHtGaugeDXF(stage, which) {
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
-      const effWarn = (which === 'go' && !(p.teff > 0)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
       setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-HT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('ht-' + stage + '-' + which);
@@ -4231,6 +4314,8 @@ function fullSplineParams(p) {
     const pitchFull = Math.PI * p.D / p.zFull;   // reverse the widening transform
     fp.smax = p.smax - pitchFull;
     fp.smin = p.smin - pitchFull;
+    fp.effMin = p.effMin - pitchFull;          // effective pair took the same transform (v29)
+    fp.effMax = p.effMax - pitchFull;
   }
   return fp;
 }
@@ -4251,6 +4336,18 @@ function rootFormTxt(gg, pp) {
 
 // Alternate-mode wording for table titles: which feature is absent.
 function altModeTxt(p) { return p.altTooth ? 'MISSING-TOOTH' : 'MISSING-GAP'; }
+
+// s/t row labels (v29, 28.09.2026): every row says WHICH limit it is. Until v29 the
+// tables printed "SPACE WIDTH MAX AT PITCH DIA" — the actual limit, unnamed — and
+// the effective limit appeared in none of them. Spline rows now say ACTUAL; the
+// effective pair prints only when entered, the GO-gauge (max-material) one plain
+// and the other marked (REF). Gears keep the plain wording: their thickness comes
+// from W / balls / xn and has no actual/effective split.
+function actLab(p, wLab) { return (p.gear ? '' : 'ACTUAL ') + wLab; }
+function effLabs(internal, wLab) {
+  return { max: 'EFFECTIVE ' + wLab + ' MAX AT PITCH DIA' + (internal ? ' (REF)' : ''),
+           min: 'EFFECTIVE ' + wLab + ' MIN AT PITCH DIA' + (internal ? '' : ' (REF)') };
+}
 
 function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
   const internal = g.internal;
@@ -4289,8 +4386,12 @@ function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
     ['ROOT FILLET RAD',                        ...O(() => F3(gf.rfUsed) + (gf.fullFillet ? ' FULL' : '')), F3(g.rfUsed) + (g.fullFillet ? ' FULL' : ''), F3(gs.rfUsed) + (gs.fullFillet ? ' FULL' : '')],
     ['ROOT FORM',                              ...O(() => rootFormTxt(gf, full.p)), rootFormTxt(g, p),    rootFormTxt(gs, sp)],
     ['FORM DIA (INVOLUTE TO)',                 ...O(() => F(gf.tangDia)),          F(g.tangDia),          F(gs.tangDia)],
-    [wLab+' MAX AT PITCH DIA',                 ...O(() => F(gf.swMax)),            F(g.swMax),            F(gs.swMax)],
-    [wLab+' MIN AT PITCH DIA',                 ...O(() => F(gf.swMin)),            F(g.swMin),            F(gs.swMin)],
+    [actLab(p, wLab)+' MAX AT PITCH DIA',      ...O(() => F(gf.swMax)),            F(g.swMax),            F(gs.swMax)],
+    [actLab(p, wLab)+' MIN AT PITCH DIA',      ...O(() => F(gf.swMin)),            F(g.swMin),            F(gs.swMin)],
+    // Effective pair: finish column only — the soft stage carries none (softParams), so '-'
+    ...(hasEff(p) ? [
+      [effLabs(internal, wLab).max,            ...O(() => F(full.p.effMax)),       F(p.effMax),           F(sp.effMax)],
+      [effLabs(internal, wLab).min,            ...O(() => F(full.p.effMin)),       F(p.effMin),           F(sp.effMin)]] : []),
   ];
   if (Wf && Ws) {
     rows.push(
@@ -4516,8 +4617,13 @@ function buildFinishRows(p, g, Wf, full) {
     ['ROOT FILLET RAD',                        ...O(() => F3(gf.rfUsed) + (gf.fullFillet ? ' FULL' : '')), F3(g.rfUsed) + (g.fullFillet ? ' FULL' : '')],
     ['ROOT FORM',                              ...O(() => rootFormTxt(gf, full.p)), rootFormTxt(g, p)],
     ['FORM DIA (INVOLUTE TO)',                 ...O(() => F(gf.tangDia)),          F(g.tangDia)],
-    [wLab+' MAX AT PITCH DIA',                 ...O(() => F(gf.swMax)),            F(g.swMax)],
-    [wLab+' MIN AT PITCH DIA',                 ...O(() => F(gf.swMin)),            F(g.swMin)],
+    [actLab(p, wLab)+' MAX AT PITCH DIA',      ...O(() => F(gf.swMax)),            F(g.swMax)],
+    [actLab(p, wLab)+' MIN AT PITCH DIA',      ...O(() => F(gf.swMin)),            F(g.swMin)],
+    // Effective pair — a coating / HT stage passes its own params, so each column
+    // prints that stage's shifted limits (v29)
+    ...(hasEff(p) ? [
+      [effLabs(internal, wLab).max,            ...O(() => F(full.p.effMax)),       F(p.effMax)],
+      [effLabs(internal, wLab).min,            ...O(() => F(full.p.effMin)),       F(p.effMin)]] : []),
   ];
   if (Wf) {
     rows.push(
@@ -4626,7 +4732,7 @@ function generateCoatTable() {
   const bandDrawing = g.swMax - g.swMin;
   const bandPre     = pre.smax  - pre.smin;
   const eaten       = bandDrawing > 0 ? (1 - bandPre / bandDrawing) * 100 : 0;
-  const wLab = g.internal ? 'SPACE WIDTH' : 'TOOTH THICKNESS';
+  const wLab = 'ACTUAL ' + (g.internal ? 'SPACE WIDTH' : 'TOOTH THICKNESS');   // the band the coating eats (v29: named)
   const coatRows = [
     ['COATING THICKNESS MINI - PER SURFACE',  F(p.coatMin), F(p.coatMin)],
     ['COATING THICKNESS MAXI - PER SURFACE',  F(p.coatMax), F(p.coatMax)],
@@ -4688,7 +4794,7 @@ function generateHtTable() {
 
   const narrow   = (p.htMode === 'narrow');
   const basisLab = { surface: 'PER SURFACE', dia: 'ON DIA', pins: 'ON PIN MEASUREMENT' }[p.htBasis] || 'PER SURFACE';
-  const wLab     = g.internal ? 'SPACE WIDTH' : 'TOOTH THICKNESS';
+  const wLab     = 'ACTUAL ' + (g.internal ? 'SPACE WIDTH' : 'TOOTH THICKNESS');   // v29: named
   const pctTxt   = isFinite(sc.pct) ? sc.pct.toFixed(1) : 'OVER 100';
   const htRows = [
     ['DIRECTION IN HEAT TREATMENT',            p.htSign === 'shrink' ? 'SHRINKAGE' : 'GROWTH',
@@ -4735,8 +4841,9 @@ function generateHtTable() {
 // as a SECTOR gauge (2 opposing sectors, ~2 teeth) so index errors can't help
 // it pass; the DXF is the full profile, sectors are relieved on the gauge body.
 // Same engine, gauge = opposite spline type of the part:
-//   flank    single s/t: GO = t_v max (ext part) / s_v min (int part), field
-//            `teff` (blank → actual limit, flagged); NO-GO = actual mini/maxi
+//   flank    single s/t: GO = t_v max (ext part) / s_v min (int part), from the
+//            section-04 effective pair (blank → actual limit, flagged);
+//            NO-GO = actual mini (ext) / maxi (int)
 //   tips     part form ∅ AS BUILT (g.tangDia) — gauge checks the whole flank
 //   root     part tip ∅ ± clearance c (`gclr`, blank = 0.25) — never touches
 //   form ∅   part tip ∅ — true involute over the full engagement
@@ -4745,14 +4852,11 @@ function gaugeParams(p, g, which) {
   const clr = (!isNaN(p.gclr) && p.gclr > 0) ? p.gclr : 0.25;
   let w;
   if (which === 'go') {
-    const hasEff = !isNaN(p.teff) && p.teff > 0;
-    w = hasEff ? p.teff : (internalPart ? g.swMin : g.swMax);
-    // ALTERNATE part: the sheet effective value is in the narrow-feature
-    // convention — where the build carries the WIDE anchored feature
-    // (missing-gap EXTERNAL: wide land · missing-tooth INTERNAL: wide space),
-    // the entered teff needs the same +π·D/Z transform getParams applies to
-    // smax/smin. g.swMax/Min are already transformed.
-    if (hasEff && ((p.altGap && !internalPart) || (p.altTooth && internalPart))) w += Math.PI * p.D / p.zFull;
+    // The part's MAX-MATERIAL effective limit (goEff), already in the build's
+    // convention: getParams applies the alternate +π·D/Z to the effective pair
+    // exactly as to smax/smin (until v29 it was added HERE, to this one value),
+    // and a coating / HT stage has shifted it with its own band (v29).
+    w = hasGoEff(p) ? goEff(p) : (internalPart ? g.swMin : g.swMax);
   } else {
     w = internalPart ? g.swMax : g.swMin;
   }
@@ -4762,6 +4866,7 @@ function gaugeParams(p, g, which) {
   gp.sizeMode = 'diameters';
   gp.smax = w; gp.smin = w;
   gp.mmax = NaN; gp.mmin = NaN;
+  gp.effMin = NaN; gp.effMax = NaN;      // the gauge carries no effective limits of its own
   // Gauge teeth reach the part's DRAWING form ∅ when one is entered (the gauge
   // checks the SPEC — a conforming part may have fillet material between its
   // as-built tangency and the drawing form ∅); fallback: as-built tangency.
@@ -4832,7 +4937,7 @@ function generateGaugeDXF(which) {
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
-      const effWarn = (which === 'go' && !(p.teff > 0)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
       const tipTxt = gp.rtip > 0 ? `TIP BREAK R${gp.rtip.toFixed(1)}` : 'TIP SHARP (0.2 DID NOT FIT)';
       setStatus(`✓ SAVED — ${fname} · ${gp.stype === 'internal' ? 'RING' : 'PLUG'} · ${which === 'go' ? 'GO' : 'NO-GO'} s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()} · ${tipTxt} · MATES PART ORIENTATION${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
@@ -4849,10 +4954,15 @@ function buildGaugeRows(p, g, gpGo, gGo, gpNo, gNo) {
   const gLab = internalPart ? 'PLUG (EXTERNAL FORM)' : 'RING (INTERNAL FORM)';
   const wLab = internalPart ? 'TOOTH THICKNESS' : 'SPACE WIDTH';    // gauge is the opposite type
   const mLab = internalPart ? 'OVER PINS' : 'BETWEEN PINS';
-  const usedEff = !isNaN(p.teff) && p.teff > 0;
+  const usedEff = hasGoEff(p);
+  // WHAT each gauge checks, named for the PART's feature (v29): the old row read
+  // "MAX EFFECTIVE / MIN ACTUAL" for both types — right for a shaft, backwards for a
+  // hub, whose GO checks the MIN effective space width and NO-GO the MAX actual.
+  const pLab = internalPart ? 'SPACE WIDTH' : 'TOOTH THICKNESS';
   return [
     ['GAUGE TYPE',                       gLab,                        gLab + ' - SECTOR'],
-    ['CHECKS',                           'MAX EFFECTIVE (COMPOSITE)', 'MIN ACTUAL (LOCAL)'],
+    ['CHECKS',                           (internalPart ? 'MIN' : 'MAX') + ' EFFECTIVE ' + pLab + ' (COMPOSITE)',
+                                         (internalPart ? 'MAX' : 'MIN') + ' ACTUAL ' + pLab + ' (LOCAL)'],
     ['NO OF TEETH',                      String(p.z),                 String(p.z)],
     inch ? ['DIAMETRAL PITCH [1/IN]', (25.4/g.module).toFixed(4), (25.4/g.module).toFixed(4)]
          : ['MODULE', parseFloat(g.module.toFixed(5)).toString(), parseFloat(g.module.toFixed(5)).toString()],
@@ -4926,7 +5036,7 @@ function generateGaugeReport(kind, stage) {
   w.document.write(buildStageTableHTML('GO / NO-GO SPLINE GAUGE DATA' + (kind ? ' · ' + stgLab : ''),
                                        title, header, rows, csv, tsv, base + '_GAUGE_TABLE.csv'));
   w.document.close();
-  const effWarn = !(p.teff > 0) ? ' · ⚠ NO EFFECTIVE LIMIT — GO USES ACTUAL' : '';
+  const effWarn = !hasGoEff(p) ? ' · ⚠ NO EFFECTIVE LIMIT — GO USES ACTUAL' : '';
   setStatus('✓ ' + stgLab + ' GAUGE TABLE OPENED — GO & NO-GO DXFs from the buttons beside it · .csv for Creo' + effWarn,
             effWarn ? 'warn' : 'ok');
 }
@@ -5277,6 +5387,11 @@ function buildReportHTML(p, g, imgData) {
     swSolved
       ? solvedRow(`Act. ${swName} (solved)`, g.swMid, bandOf(g.swMax, g.swMin))
       : chkRow(`Act. ${swName}`, midOf(swBand), g.swMid, swBand, 4),
+    // EFFECTIVE pair (v29) — not cut into the profile, so no built value and no
+    // deviation: what was entered, and which limit the GO gauge takes.
+    hasEff(p) ? txtRow(`Eff. ${swName}<sub>v</sub> mini / maxi`,
+                       (isNaN(p.effMin) ? '—' : L(p.effMin, 4)) + ' / ' + (isNaN(p.effMax) ? '—' : L(p.effMax, 4)) + ' ' + UN,
+                       'not cut — GO gauge takes the ' + (g.internal ? 'mini' : 'maxi')) : '',
     pinsSolved
       ? solvedRow(`${g.internal ? 'Between' : 'Over'} pins M · pin ∅ ${L(p.pin, 3)} (solved)`,
                   g.pinM, bandOf(g.pinMmax, g.pinMmin))
@@ -5482,7 +5597,7 @@ function generateReport() {
 // ── PERSISTENCE (remember last entered values) ──────────────────────
 const STORE_KEY = 'splineGenV7';
 const FIELD_IDS = ['partno','fname','fname_auto','stype','sizemode','anchor','z','module','D','alpha','Db','Dtip','Droot',
-                   'DForm','smax','smin','mmax','mmin','rfil','rtip','nsegs','start','clock12','pin','allow','spank','tunit','teff','gclr','mtpat','rootmode','tiptype',
+                   'DForm','smax','smin','effmin','effmax','mmax','mmin','rfil','rtip','nsegs','start','clock12','pin','allow','spank','tunit','gclr','mtpat','rootmode','tiptype',
                    'Dtip_mode','Dtip_let','Dtip_gr','Droot_mode','Droot_let','Droot_gr',
                    'Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
                    'ptype','beta','hand','xn','ganchor',
@@ -5608,6 +5723,7 @@ function histRestore(id) {
   // onUnitChange cannot convert the restored numbers a second time on the way in.
   if (e.fields.tunit) { document.getElementById('tunit').value = e.fields.tunit; _lastUnit = e.fields.tunit; }
   Object.entries(e.fields).forEach(([k, v]) => { const el = document.getElementById(k); if (el) el.value = v; });
+  migrateTeff(e.fields);                   // pre-v29 entry: `teff` → the effective pair
   // An entry logged before v20 has no fname_auto — its name was typed by hand, so
   // treat it as MANUAL. Anything else would recompute over the stored name and break
   // the guarantee that LOAD reproduces the entry exactly.
@@ -5694,7 +5810,22 @@ function loadState() {
     const el = document.getElementById(id);
     if (el && s[id] !== undefined && s[id] !== null) el.value = s[id];
   });
+  migrateTeff(s);
   return s;   // raw stored object — init uses it to migrate pre-mode-select states
+}
+
+// v29 MIGRATION — the single section-06 `teff` field became the section-04 effective
+// PAIR. A stored state or history entry from before v29 carries `teff` and neither new
+// id. Its value was the GO limit: the eff. MINI on an internal part, the eff. MAXI on
+// an external one (gear entries are stored as external and carry it greyed). Always
+// writes BOTH new fields for such an entry, so a LOAD never inherits the effective
+// values of whatever part was on screen before it. Entries from v29 on are untouched.
+function migrateTeff(f) {
+  if (!f || f.effmin !== undefined || f.effmax !== undefined) return;
+  const v = (f.teff === undefined || f.teff === null) ? '' : String(f.teff);
+  const internal = f.stype !== 'external';
+  document.getElementById('effmin').value = internal ? v : '';
+  document.getElementById('effmax').value = internal ? '' : v;
 }
 
 function resetDefaults() {
