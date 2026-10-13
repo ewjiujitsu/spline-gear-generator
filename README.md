@@ -5,7 +5,10 @@ can import straight into CAD.
 
 Everything runs in the browser. There is no build step, no dependency to install,
 and the page makes **no network requests of any kind** — open `index.html` from
-disk and it works exactly as it does when hosted.
+disk and it works exactly as it does when hosted, offline included. Its fonts
+(Barlow, Barlow Condensed, Share Tech Mono — SIL Open Font License 1.1) are
+embedded in the page; their copyright notices and the licence text are in
+`index.html`, in the `embedded-fonts` style block.
 
 ## What it produces
 
