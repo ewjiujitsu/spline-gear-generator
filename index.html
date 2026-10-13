@@ -3924,8 +3924,8 @@ function generateDXF() {
 //   tips:    ∅ and tip corner radius unchanged (no stock on the turned ∅) — unless
 //            the tip ∅ is GROUND AFTER HT (v32): then ±a_tip radial, and the tip
 //            break re-seats on the offset flank and the bigger / smaller tip circle.
-// Diameter allowances (v32, 13.10.2026 — the author: "they should have their own values
-// for minor and major dias"). Root ∅ blank = a, so the fillet line above stays an exact
+// Diameter allowances (v32, 13.10.2026 — the author's request: an own value for the minor
+// and for the major ∅). Root ∅ blank = a, so the fillet line above stays an exact
 // offset in the default; a root value ≠ a re-seats the corner fillet like the helical case.
 function softRootA(p) { return isNaN(p.aroot) ? p.allow : p.aroot; }
 function softTipA(p)  { return p.tipStock ? (isNaN(p.atip) ? p.allow : p.atip) : 0; }
