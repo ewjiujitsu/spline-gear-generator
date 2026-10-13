@@ -4422,6 +4422,10 @@ function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
   const BR = (p.DrootBand && !isNaN(p.DrootBand.top)) ? p.DrootBand : null;
   const limF = (t, b) => F(t) + ' / ' + F(b);
   const sgnA = internal ? -1 : 1;
+  // The rough column prints the BARE value (v30, 13.10.2026). Until v30 the root ∅ and
+  // W cells carried "(+0.250)" / "(-0.250)" — on a drawing table that reads as a
+  // TOLERANCE on the dimension, not as the grinding stock already added to it (the
+  // author's catch). The stock is stated once, in the ALLOWANCE rows at the foot.
   const rows = [
     ['NO OF TEETH',                            ...O(() => String(p.zFull)),        String(p.z),           String(p.z)],
     inch ? ['DIAMETRAL PITCH [1/IN]', ...O(() => (25.4/gf.module).toFixed(4)), (25.4/g.module).toFixed(4), (25.4/g.module).toFixed(4)]
@@ -4431,8 +4435,8 @@ function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
     ['BASE DIA',                               ...O(() => F(p.Db)),                F(p.Db),               F(p.Db)],
     [(internal?'MINOR':'MAJOR')+' DIA (TIPS)', ...O(() => F3(p.Dtip)),             F3(p.Dtip),            F3(p.Dtip) + ' (UNCHANGED)'],
     ...(BT ? [[(internal?'MINOR':'MAJOR')+' DIA (TIPS) LIMITS', ...O(() => limF(BT.top, BT.bot)), limF(BT.top, BT.bot), limF(BT.top, BT.bot) + ' (UNCHANGED)']] : []),
-    [(internal?'MAJOR':'MINOR')+' DIA (ROOT)', ...O(() => F3(p.Droot)),            F3(p.Droot),           F3(sp.Droot) + ' (' + (internal?'-':'+') + F(aRoot) + ')'],
-    ...(BR ? [[(internal?'MAJOR':'MINOR')+' DIA (ROOT) LIMITS', ...O(() => limF(BR.top, BR.bot)), limF(BR.top, BR.bot), limF(BR.top + sgnA*aRoot, BR.bot + sgnA*aRoot) + ' (' + (internal?'-':'+') + F(aRoot) + ')']] : []),
+    [(internal?'MAJOR':'MINOR')+' DIA (ROOT)', ...O(() => F3(p.Droot)),            F3(p.Droot),           F3(sp.Droot)],
+    ...(BR ? [[(internal?'MAJOR':'MINOR')+' DIA (ROOT) LIMITS', ...O(() => limF(BR.top, BR.bot)), limF(BR.top, BR.bot), limF(BR.top + sgnA*aRoot, BR.bot + sgnA*aRoot)]] : []),
     ['ROOT FILLET RAD',                        ...O(() => F3(gf.rfUsed) + (gf.fullFillet ? ' FULL' : '')), F3(g.rfUsed) + (g.fullFillet ? ' FULL' : ''), F3(gs.rfUsed) + (gs.fullFillet ? ' FULL' : '')],
     ['ROOT FORM',                              ...O(() => rootFormTxt(gf, full.p)), rootFormTxt(g, p),    rootFormTxt(gs, sp)],
     ['FORM DIA (INVOLUTE TO)',                 ...O(() => F(gf.tangDia)),          F(g.tangDia),          F(gs.tangDia)],
@@ -4446,9 +4450,9 @@ function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
   if (Wf && Ws) {
     rows.push(
       ['BASE TANGENT - TEETH SPANNED k',       ...O(() => String(full.Wf.k)),     String(Wf.k),          String(Ws.k)],
-      ['BASE TANGENT W MAX',                   ...O(() => F(full.Wf.max)),        F(Wf.max),             F(Ws.max) + ' (+' + F(a) + ')'],
-      ['BASE TANGENT W MID',                   ...O(() => F(full.Wf.mid)),        F(Wf.mid),             F(Ws.mid) + ' (+' + F(a) + ')'],
-      ['BASE TANGENT W MIN',                   ...O(() => F(full.Wf.min)),        F(Wf.min),             F(Ws.min) + ' (+' + F(a) + ')'],
+      ['BASE TANGENT W MAX',                   ...O(() => F(full.Wf.max)),        F(Wf.max),             F(Ws.max)],
+      ['BASE TANGENT W MID',                   ...O(() => F(full.Wf.mid)),        F(Wf.mid),             F(Ws.mid)],
+      ['BASE TANGENT W MIN',                   ...O(() => F(full.Wf.min)),        F(Wf.min),             F(Ws.min)],
       ['SPAN CONTACT DIA (MIC ON FLANK)',      ...O(() => F3(full.Wf.contact) + (full.Wf.seats ? '' : ' CHECK SEATING')),
                                                F3(Wf.contact) + (Wf.seats ? '' : ' CHECK SEATING'),
                                                F3(Ws.contact) + (Ws.seats ? '' : ' CHECK SEATING')]);
