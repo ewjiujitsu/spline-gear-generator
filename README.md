@@ -15,7 +15,9 @@ embedded in the page; their copyright notices and the licence text are in
 - **Involute splines**, internal and external — ANSI B92.1 / ISO 4156 / DIN 5480
 - **Spur and helical gears**, external, normal module system (DIN 3960 transverse derivation)
 - **Soft stage (pre heat treat)** — a roughing profile at a stock allowance added to the
-  base tangent and root ∅, which is exactly an allowance/2-per-flank normal offset
+  base tangent and root ∅, which is exactly an allowance/2-per-flank normal offset; the
+  root ∅ and (when it is ground after HT) the tip ∅ can each take their own allowance,
+  and the soft table and soft gauges follow
 - **Coating stages** — enter a per-surface coating thickness band and get the
   pre-coating size to machine and the post-coating finished size, with the
   tolerance consequences worked out

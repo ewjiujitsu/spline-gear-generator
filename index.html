@@ -757,7 +757,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v31 · SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v32 · SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -1164,7 +1164,7 @@
         <div class="fields">
           <div class="field-row">
             <div class="field">
-              <div class="field-label">Stock allowance — added to BASE TANGENT &amp; root ∅ <span class="unit">[mm]</span></div>
+              <div class="field-label">Stock allowance — added to BASE TANGENT (and root ∅ unless set below) <span class="unit">[mm]</span></div>
               <div class="field-name">a (= 2 × per-face)</div>
               <input type="text" inputmode="decimal" id="allow" value="0.25" min="0" step="0.01" oninput="onChange()">
             </div>
@@ -1174,11 +1174,38 @@
               <input type="text" inputmode="decimal" id="spank" value="" min="2" step="1" oninput="onChange()">
             </div>
           </div>
+          <!-- Diameter allowances (v32, 13.10.2026): each ∅ has its own value. Root ∅ blank = a,
+               which is the machinist convention and the tool before v32. The TIP ∅ is turned to
+               finish size unless it is ground after HT — then it carries its own stock too, and the
+               soft DXF, rough table and soft gauges all follow (the soft ring gauge's major ∅ /
+               plug gauge's minor ∅ clear the bigger soft tip). Labels follow the spline type. -->
+          <div class="field-row tri">
+            <div class="field">
+              <div class="field-label" id="lbl-aroot">MAJOR ∅ (root) allowance <span class="unit">[mm]</span></div>
+              <div class="field-name">a root · blank = a</div>
+              <input type="text" inputmode="decimal" id="aroot" value="" min="0" step="0.01" oninput="onChange()">
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-tipstock">MINOR ∅ (tips) ground after HT? <span class="unit">[-]</span></div>
+              <div class="field-name">tip stock</div>
+              <select id="tipstock" onchange="onTipStockChange()">
+                <option value="no" selected>NO — no stock</option>
+                <option value="yes">YES — has stock</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="field-label" id="lbl-atip">MINOR ∅ (tips) allowance <span class="unit">[mm]</span></div>
+              <div class="field-name">a tip · blank = a</div>
+              <input type="text" inputmode="decimal" id="atip" value="" min="0" step="0.01" oninput="onChange()">
+            </div>
+          </div>
           <div class="field-row">
             <div class="field field-wide">
               <div style="font-family:var(--mono);font-size:9px;color:var(--text3);line-height:1.6">
                 Machinist convention: enter the FINISH spline, then add <b>a</b> to the base tangent
                 measurement W and <b>a</b> to the root &empty; &mdash; major/tip &empty; untouched (not ground).
+                Each &empty; can take its OWN allowance (v32): root &empty; blank = a; set the tip &empty; to
+                GROUND AFTER HT when the turned OD / bore carries stock too.
                 Identical to an a/2-per-flank offset NORMAL to the surface, so the profile is exact
                 (&Delta;W = a &middot; root &empty; &plusmn;a &middot; fillet R &minus; a/2 &middot; tip unchanged).
                 &darr; SOFT DXF cuts it; &#9081; ROUGH STAGE TABLE lists W over k teeth + over/between-pins
@@ -1692,7 +1719,7 @@ function isInch() { return document.getElementById('tunit').value === 'inch'; }
 // holds P [1/in] in dp mode), angles (alpha/beta/start), xn, nsegs, spank.
 const LINEAR_IDS = ['Dtip','Droot','Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
                     'DForm','D','Db','smax','smin','effmin','effmax','mmax','mmin','rfil','rtip','pin','allow','gclr',
-                    'coat_min','coat_max','ht_min','ht_max'];
+                    'coat_min','coat_max','ht_min','ht_max','aroot','atip'];
 let _lastUnit = null;   // set at init; onUnitChange converts only on a real flip
 function onUnitChange() {
   const inch = isInch();
@@ -2175,6 +2202,9 @@ function getParams() {
     want12,                                                     // gap | tooth — what AUTO resolved to
     DForm: evalNum(document.getElementById('DForm').value) * UF || 0,  // ext involute floor (form ∅); 0 = auto
     allow: evalNum(document.getElementById('allow').value) * UF || 0,  // soft-stage allowance a: added to base tangent W AND root ∅ (machinist convention; = 2q per face)
+    aroot: evalNum(document.getElementById('aroot').value) * UF,       // soft: OWN allowance on the root ∅ [mm]; NaN = a (v32)
+    tipStock: document.getElementById('tipstock').value === 'yes',     // soft: tip ∅ ground after HT → carries stock (v32)
+    atip:  evalNum(document.getElementById('atip').value) * UF,        // soft: allowance on the tip ∅ [mm]; NaN = a (v32)
     spank: Math.round(evalNum(document.getElementById('spank').value)) || 0,    // base-tangent span teeth k; 0/blank = auto
     tunit: document.getElementById('tunit').value,                   // master units switch: 'mm' | 'inch' (inputs, readouts, tables, report)
     gclr:  evalNum(document.getElementById('gclr').value) * UF,   // gauge root ↔ part tip clearance [mm]; NaN = 0.25
@@ -2242,6 +2272,8 @@ function validate(p) {
     return 'Root style ' + (p.rootMode === 'flat' ? 'FLAT + corner radius' : 'SINGLE fillet') + ' needs r (root) > 0';
   if (p.rtip<0)                        return 'Tip corner radius ≥ 0';
   if (p.allow<0)                       return 'Soft-stage allowance ≥ 0';
+  if (p.aroot<0)                       return 'Soft-stage root ∅ allowance ≥ 0 (or blank = a)';
+  if (p.tipStock && p.atip<0)          return 'Soft-stage tip ∅ allowance ≥ 0 (or blank = a)';
   // HT distortion. Blocked WITH coating rather than composed: the real order is
   // machine → HT → grind → coat, so stacking the two transforms straight onto the
   // drawing profile would compose them at the wrong stage and quietly produce a
@@ -2355,6 +2387,17 @@ function onHtChange() {
   document.getElementById('lbl-htmax').innerHTML =
     `Distortion, maxi — ${basisLab} <span class="unit">[mm]</span>`;
   onChange(true);
+}
+
+// ── SOFT-STAGE TIP ∅ STOCK (v32, 13.10.2026): the tip ∅ allowance is live only when the
+// tip ∅ is ground after HT — NO greys it, the way Coating OFF greys section 07. `silent`
+// skips the recompute when a caller (init, LOAD) runs its own chain afterwards.
+function onTipStockChange(silent) {
+  const on = document.getElementById('tipstock').value === 'yes';
+  const el = document.getElementById('atip');
+  el.disabled = !on;
+  el.closest('.field').classList.toggle('na', !on);
+  if (silent !== true) onChange(true);
 }
 
 // ── ROOT STYLE: grey the root fillet input in AUTO (06.08.2026).
@@ -2546,6 +2589,9 @@ function onTypeChange() {
     set('nm-effmin',  's_v min · blank = GO uses act. mini');
     set('lbl-effmax', 'Eff. space width, maxi — reference <span class="unit">[mm]</span>');
     set('nm-effmax',  's_v max · optional · printed (REF)');
+    set('lbl-aroot',    'MAJOR ∅ (root) allowance <span class="unit">[mm]</span>');
+    set('lbl-tipstock', 'MINOR ∅ (tips) ground after HT? <span class="unit">[-]</span>');
+    set('lbl-atip',     'MINOR ∅ (tips) allowance <span class="unit">[mm]</span>');
   } else {
     set('lbl-dtip',  'Major diameter (tooth tips) <span class="unit">[mm]</span>');
     set('nm-dtip',   'Do');
@@ -2570,6 +2616,9 @@ function onTypeChange() {
     set('nm-effmin',  't_v min · optional · printed (REF)');
     set('lbl-effmax', 'Eff. tooth thickness, maxi — GO gauge <span class="unit">[mm]</span>');
     set('nm-effmax',  't_v max · blank = GO uses act. maxi');
+    set('lbl-aroot',    'MINOR ∅ (root) allowance <span class="unit">[mm]</span>');
+    set('lbl-tipstock', 'MAJOR ∅ (tips) ground after HT? <span class="unit">[-]</span>');
+    set('lbl-atip',     'MAJOR ∅ (tips) allowance <span class="unit">[mm]</span>');
   }
   syncClock12Label();   // the start-angle hint follows the TOGGLE now, not the type
   onChange(true);
@@ -3872,7 +3921,14 @@ function generateDXF() {
 //            circle (spur: that IS the exact normal offset of the finish
 //            fillet; helical: root moves a/2 < q, the fillet re-seats);
 //            auto full fillet stays auto — re-derived on offset flanks + root.
-//   tips:    ∅ and tip corner radius unchanged (no stock on the turned ∅).
+//   tips:    ∅ and tip corner radius unchanged (no stock on the turned ∅) — unless
+//            the tip ∅ is GROUND AFTER HT (v32): then ±a_tip radial, and the tip
+//            break re-seats on the offset flank and the bigger / smaller tip circle.
+// Diameter allowances (v32, 13.10.2026 — the author: "they should have their own values
+// for minor and major dias"). Root ∅ blank = a, so the fillet line above stays an exact
+// offset in the default; a root value ≠ a re-seats the corner fillet like the helical case.
+function softRootA(p) { return isNaN(p.aroot) ? p.allow : p.aroot; }
+function softTipA(p)  { return p.tipStock ? (isNaN(p.atip) ? p.allow : p.atip) : 0; }
 function softParams(p, gFin) {
   const internal = p.stype !== 'external';
   // Per-flank normal stock. GEAR mode: the machinist's `a` is on the NORMAL
@@ -3895,10 +3951,11 @@ function softParams(p, gFin) {
   // NaN, and the GO gauge falls back to the actual limit, flagged, as the drawing does.
   sp.effMin = p.effMin + sgn * dw;
   sp.effMax = p.effMax + sgn * dw;
-  sp.Droot = p.Droot + sgn * p.allow;          // root ±a radial (spur/spline: a = 2q bit-exact)
+  sp.Droot = p.Droot + sgn * softRootA(p);     // root ±a radial (spur/spline: a = 2q bit-exact); own value since v32
+  sp.Dtip  = p.Dtip  + sgn * softTipA(p);      // tip ∅: + 0 unless ground after HT (v32) — the gauges read it from here
   if (sp.smin <= 0)
     throw new Error('soft stage: ' + (internal ? 'space width' : 'tooth thickness') + ' ≤ 0 — allowance too large');
-  if (internal ? (sp.Droot <= p.Dtip) : (sp.Droot >= p.Dtip))
+  if (internal ? (sp.Droot <= sp.Dtip) : (sp.Droot >= sp.Dtip))
     throw new Error('soft stage: root ∅ crosses the tip ∅ — allowance too large');
   if (gFin.fullFillet) {
     sp.rfil = 0; sp.DForm = 0;                 // auto full fillet of the offset profile = exact offset
@@ -4379,7 +4436,9 @@ function generateSoftDXF() {
       const fname = sp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
       const gs = buildGeometry(sp);
-      setStatus(`✓ SAVED — ${fname} · SOFT ΔW+${fromMM(p.allow,3)} · ROOT Ø${fromMM(sp.Droot,3)} · ${g.internal?'BTWN':'OVER'} PINS MID ${gs.pinM !== null ? fromMM(gs.pinM,4) : '—'}${unitSuffix()}`, 'ok');
+      setStatus(`✓ SAVED — ${fname} · SOFT ΔW+${fromMM(p.allow,3)} · ROOT Ø${fromMM(sp.Droot,3)}` +
+                (softTipA(p) > 0 ? ` · TIP Ø${fromMM(sp.Dtip,3)}` : '') +
+                ` · ${g.internal?'BTWN':'OVER'} PINS MID ${gs.pinM !== null ? fromMM(gs.pinM,4) : '—'}${unitSuffix()}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('soft');
     } catch (e) {
@@ -4520,8 +4579,10 @@ function effLabs(internal, wLab) {
 function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
   const internal = g.internal;
   const a = p.allow;
-  // Root ∅ moves by exactly a (radial) — spur, spline AND helical (W moves by exactly a too)
-  const aRoot = p.allow;
+  // Root ∅ moves by exactly a (radial) — spur, spline AND helical (W moves by exactly a too).
+  // Since v32 each ∅ can carry its own allowance: root blank = a; tip 0 unless ground after HT.
+  const aRoot = softRootA(p);
+  const aTip  = softTipA(p);
   const inch = p.tunit === 'inch';
   // Table DISPLAY precision only (calc stays full precision): mm → 3 dp · inch → 4 dp
   const F  = v => (v === null || v === undefined || isNaN(v)) ? '-' : (inch ? (v/25.4).toFixed(4) : v.toFixed(3));
@@ -4551,8 +4612,9 @@ function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
     ['PRESSURE ANGLE [DEG]',                   ...O(() => g.alphaDeg.toFixed(3)),  g.alphaDeg.toFixed(3), g.alphaDeg.toFixed(3)],
     ['PITCH DIA',                              ...O(() => F(p.D)),                 F(p.D),                F(p.D)],
     ['BASE DIA',                               ...O(() => F(p.Db)),                F(p.Db),               F(p.Db)],
-    [(internal?'MINOR':'MAJOR')+' DIA (TIPS)', ...O(() => F3(p.Dtip)),             F3(p.Dtip),            F3(p.Dtip) + ' (UNCHANGED)'],
-    ...(BT ? [[(internal?'MINOR':'MAJOR')+' DIA (TIPS) LIMITS', ...O(() => limF(BT.top, BT.bot)), limF(BT.top, BT.bot), limF(BT.top, BT.bot) + ' (UNCHANGED)']] : []),
+    [(internal?'MINOR':'MAJOR')+' DIA (TIPS)', ...O(() => F3(p.Dtip)),             F3(p.Dtip),            aTip > 0 ? F3(sp.Dtip) : F3(p.Dtip) + ' (UNCHANGED)'],
+    ...(BT ? [[(internal?'MINOR':'MAJOR')+' DIA (TIPS) LIMITS', ...O(() => limF(BT.top, BT.bot)), limF(BT.top, BT.bot),
+               aTip > 0 ? limF(BT.top + sgnA*aTip, BT.bot + sgnA*aTip) : limF(BT.top, BT.bot) + ' (UNCHANGED)']] : []),
     [(internal?'MAJOR':'MINOR')+' DIA (ROOT)', ...O(() => F3(p.Droot)),            F3(p.Droot),           F3(sp.Droot)],
     ...(BR ? [[(internal?'MAJOR':'MINOR')+' DIA (ROOT) LIMITS', ...O(() => limF(BR.top, BR.bot)), limF(BR.top, BR.bot), limF(BR.top + sgnA*aRoot, BR.bot + sgnA*aRoot)]] : []),
     ['ROOT FILLET RAD',                        ...O(() => F3(gf.rfUsed) + (gf.fullFillet ? ' FULL' : '')), F3(g.rfUsed) + (g.fullFillet ? ' FULL' : ''), F3(gs.rfUsed) + (gs.fullFillet ? ' FULL' : '')],
@@ -4582,8 +4644,14 @@ function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
     ['MEAS '+mLab+' MIN',                      ...O(() => F(gf.pinMmin)),         F(g.pinMmin),          F(gs.pinMmin)],
     ['ALLOWANCE ON BASE TANGENT (2 FLANKS)',   ...O(() => '-'),                   '-',                   F(a)],
     ['ALLOWANCE ON ROOT DIA',                  ...O(() => '-'),                   '-',                   F(aRoot)],
+    ...(aTip > 0 ? [['ALLOWANCE ON ' + (internal ? 'MINOR' : 'MAJOR') + ' DIA (TIPS)', ...O(() => '-'), '-', F(aTip)]] : []),
     ['STOCK PER FLANK (NORMAL TO SURFACE)',    ...O(() => '-'),                   '-',                   F(a/2)],
-    [(inch ? 'ALL DIMENSIONS INCH' : 'ALL DIMENSIONS MM') + ' - TIP/MAJOR DIA NOT GROUND - STOCK EVEN ON FLANKS AND ROOT', ...O(() => ''), '', '']);
+    // Foot note: the pre-v32 wording whenever the ∅ allowances are the default (root = a,
+    // tip not ground); otherwise it points at the allowance rows. No commas — it is a CSV cell.
+    [(inch ? 'ALL DIMENSIONS INCH' : 'ALL DIMENSIONS MM') +
+       (aRoot === a && !(aTip > 0) ? ' - TIP/MAJOR DIA NOT GROUND - STOCK EVEN ON FLANKS AND ROOT'
+        : aTip > 0 ? ' - STOCK ON FLANKS ROOT AND TIPS - SEE ALLOWANCE ROWS'
+        : ' - TIP DIA NOT GROUND - STOCK ON FLANKS AND ROOT - SEE ALLOWANCE ROWS'), ...O(() => ''), '', '']);
   // GEAR mode: prepend the normal-system rows and relabel the transverse ones
   // (g.module = D/z = TRANSVERSE module; g.alphaDeg = acos(Db/D) = αt).
   if (p.gear) {
@@ -4749,7 +4817,11 @@ function generateRoughTable() {
   const boldCol = full ? 2 : 1;   // sliced index of the ROUGH (soft) column
   w.document.write(buildStageTableHTML(
     'ROUGH STAGE ' + word + ' DATA (PRE HEAT TREAT)',
-    `${title} · allowance ${Fa(p.allow)} on base tangent &amp; root ∅ (= ${Fa(p.allow/2)}/flank normal)`,
+    // Pre-v32 sub line while the ∅ allowances are the default; otherwise each ∅ is named.
+    (softRootA(p) === p.allow && !(softTipA(p) > 0))
+      ? `${title} · allowance ${Fa(p.allow)} on base tangent &amp; root ∅ (= ${Fa(p.allow/2)}/flank normal)`
+      : `${title} · allowance ${Fa(p.allow)} on base tangent (= ${Fa(p.allow/2)}/flank normal) · root ∅ ${Fa(softRootA(p))}` +
+        (softTipA(p) > 0 ? ` · tip ∅ ${Fa(softTipA(p))}` : ' · tip ∅ not ground'),
     header, rows, csv, tsv, base + '_ROUGH_STAGE_TABLE.csv', boldCol));
   w.document.close();
   setStatus('✓ ROUGH STAGE TABLE OPENED — download the .csv, then Creo: Table ▸ Table from File', 'ok');
@@ -5199,9 +5271,14 @@ function generateGaugeReport(kind, stage) {
                : kind === 'ht'   ? S + '-HT'      + (stage === 'pre' ? ' (AS CUT)'    : ' (FINISHED)')
                : kind === 'soft' ? 'SOFT STAGE (PRE-GRIND)'
                : 'DRAWING';
-  const aTxt   = p.tunit === 'inch' ? (p.allow / 25.4).toFixed(4) + ' IN' : p.allow.toFixed(3) + ' MM';
+  const U      = v => p.tunit === 'inch' ? (v / 25.4).toFixed(4) + ' IN' : v.toFixed(3) + ' MM';
+  const aTxt   = U(p.allow);
+  // v32: own ∅ allowances. The default (root = a, tip not ground) keeps the v30 wording.
+  const aR = softRootA(p), aT = softTipA(p);
+  const stkTxt = (aR === p.allow && !(aT > 0)) ? ' - STOCK a ' + aTxt + ' ON W AND ROOT DIA'
+               : ' - STOCK a ' + aTxt + ' ON W - ROOT DIA ' + U(aR) + (aT > 0 ? ' - TIP DIA ' + U(aT) : ' - TIP DIA NOT GROUND');
   const stgTxt = stgLab + (kind ? (isDrw ? ' = DRAWING STAGE' : ' - DERIVED') : '') +
-                 (kind === 'soft' ? ' - STOCK a ' + aTxt + ' ON W AND ROOT DIA' : '');
+                 (kind === 'soft' ? stkTxt : '');
   const base   = p.fname.replace(/\.dxf$/i, '') + sfx;
   const title  = base + ' — GAUGES FOR ' + (g.internal ? 'INTERNAL' : 'EXTERNAL') + ' SPLINE' +
                  (kind ? ' · ' + stgTxt : '');
@@ -5782,7 +5859,8 @@ const FIELD_IDS = ['partno','fname','fname_auto','stype','sizemode','anchor','z'
                    'Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
                    'ptype','beta','hand','xn','ganchor',
                    'coat_on','coat_dir','coat_min','coat_max',
-                   'ht_on','ht_dir','ht_sign','ht_basis','ht_mode','ht_min','ht_max'];
+                   'ht_on','ht_dir','ht_sign','ht_basis','ht_mode','ht_min','ht_max',
+                   'aroot','tipstock','atip'];
 
 // ── HISTORY — every part generated on this machine (06.08.2026) ─
 // "A log of the splines/gears that were generated, with the exact values used."
@@ -5905,6 +5983,7 @@ function histRestore(id) {
   if (e.fields.tunit) { document.getElementById('tunit').value = e.fields.tunit; _lastUnit = e.fields.tunit; }
   Object.entries(e.fields).forEach(([k, v]) => { const el = document.getElementById(k); if (el) el.value = v; });
   migrateTeff(e.fields);                   // pre-v29 entry: `teff` → the effective pair
+  migrateSoftDia(e.fields);                // pre-v32 entry: ∅ allowances back to their defaults
   // An entry logged before v20 has no fname_auto — its name was typed by hand, so
   // treat it as MANUAL. Anything else would recompute over the stored name and break
   // the guarantee that LOAD reproduces the entry exactly.
@@ -5915,7 +5994,7 @@ function histRestore(id) {
   ['Dtip','Droot'].forEach(id => onDiaModeChange(id, true));
   initLimOrder(); fixUnitTags();
   onTipTypeChange(); onTypeChange(); onSizeModeChange(); onAnchorChange();
-  onPatChange(); onRootModeChange(); onCoatChange(); onPartTypeChange();
+  onPatChange(); onRootModeChange(); onCoatChange(); onTipStockChange(true); onPartTypeChange();
   saveState();
   setStatus('✓ LOADED — ' + (e.name || histSummary(e.fields)) + ' · press Generate to reproduce it', 'ok');
 }
@@ -5992,7 +6071,19 @@ function loadState() {
     if (el && s[id] !== undefined && s[id] !== null) el.value = s[id];
   });
   migrateTeff(s);
+  migrateSoftDia(s);
   return s;   // raw stored object — init uses it to migrate pre-mode-select states
+}
+
+// v32 MIGRATION — section 05 gained its own ∅ allowances (aroot / tipstock / atip). A stored
+// state or history entry from before v32 has none of them, and a LOAD only writes the ids it
+// carries, so the part on screen would lend it its values. Reset all three to the defaults
+// (root = a, tip not ground), which is exactly how that entry was generated.
+function migrateSoftDia(f) {
+  if (!f || f.tipstock !== undefined) return;
+  document.getElementById('aroot').value = '';
+  document.getElementById('tipstock').value = 'no';
+  document.getElementById('atip').value = '';
 }
 
 // v29 MIGRATION — the single section-06 `teff` field became the section-04 effective
@@ -6056,6 +6147,7 @@ onPatChange();      // sync the missing-feature position field to the restored p
 onRootModeChange(); // sync the root fillet field to the restored root style
 onCoatChange();     // sync the coating section + its output buttons
 onHtChange();       // sync the HT distortion section + its output buttons
+onTipStockChange(true); // grey the tip ∅ allowance unless the tip is ground after HT (v32)
 setFnameAuto(fnameIsAuto());   // light the ↺ button to match the restored follow/typed state
 histRender();       // draw the generated-parts log
 initLimOrder();     // rebuild the limits-row typed-pair bookkeeping from restored values
