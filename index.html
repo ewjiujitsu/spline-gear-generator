@@ -639,7 +639,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v29 · SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v30 · SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -1066,6 +1066,8 @@
                 &darr; SOFT DXF cuts it; &#9081; ROUGH STAGE TABLE lists W over k teeth + over/between-pins
                 (same check pin) for finish &amp; soft; &#9081; FINISH TABLE = the same table for the
                 finished spline only. Both give a .csv for Creo Table &#9656; Table from File.
+                SOFT-STAGE GAUGES (v30): GO / NO-GO for the roughed part &mdash; the section-04 limits
+                (actual AND effective) moved out by the stock, then the section-06 gauge rules unchanged.
               </div>
             </div>
           </div>
@@ -1426,6 +1428,12 @@
           <div class="btn-row two">
             <button onclick="generateSoftDXF()">↓ Soft DXF</button>
             <button onclick="generateRoughTable()">⎙ Rough Stage Table</button>
+          </div>
+          <div class="btn-cap sub">Soft-stage gauges · derived · drawing limits + stock</div>
+          <div class="btn-row">
+            <button onclick="generateSoftGaugeDXF('go')">↓ GO Gauge</button>
+            <button onclick="generateSoftGaugeDXF('nogo')">↓ NO-GO Gauge</button>
+            <button onclick="generateGaugeReport('soft')">⎙ Gauge Table</button>
           </div>
         </div>
 
@@ -3762,7 +3770,13 @@ function softParams(p, gFin) {
   sp.smax = gFin.swMax + sgn * dw;
   sp.smin = gFin.swMin + sgn * dw;
   sp.mmax = NaN; sp.mmin = NaN;
-  sp.effMin = NaN; sp.effMax = NaN;            // a roughed spline is never GO-gauged — its table column prints '-' (v29)
+  // EFFECTIVE limits move with the actual band, by the same 2q/cos αp (v30, 13.10.2026 —
+  // the author's choice A). This is the rule coatParams / htParams follow since v29: the soft
+  // GO gauge keeps the drawing's form allowance λ, moved out by the stock. Until v30 the
+  // soft stage carried no effective limits and had no gauges. Not entered → NaN stays
+  // NaN, and the GO gauge falls back to the actual limit, flagged, as the drawing does.
+  sp.effMin = p.effMin + sgn * dw;
+  sp.effMax = p.effMax + sgn * dw;
   sp.Droot = p.Droot + sgn * p.allow;          // root ±a radial (spur/spline: a = 2q bit-exact)
   if (sp.smin <= 0)
     throw new Error('soft stage: ' + (internal ? 'space width' : 'tooth thickness') + ' ≤ 0 — allowance too large');
@@ -4257,6 +4271,42 @@ function generateSoftDXF() {
   }, 10);
 }
 
+// Gauge for the SOFT stage (v30, 13.10.2026). Same reasoning as the coating and HT
+// gauges: the gauge is the MATING spline, so it is built from the soft stage's own
+// band — softParams on the drawing params, buildGeometry on the result, gaugeParams on
+// THAT — and the validated gauge machinery does the rest unchanged. Name: the stage
+// suffix once and last, as the coating / HT gauges do (<name>_GO_GAUGE_SOFT.dxf).
+function generateSoftGaugeDXF(which) {
+  const p = getParams();
+  if (p.gear) { setStatus('ERROR: GO/NO-GO spline gauges do not apply to GEARS', 'err'); return; }
+  const err = validate(p);
+  if (err) { setStatus('ERROR: ' + err, 'err'); return; }
+  if (!(p.allow > 0)) { setStatus('ERROR: soft stage needs Stock allowance > 0 (section 05)', 'err'); return; }
+
+  document.getElementById('btn-gen').disabled = true;
+  setStatus('GENERATING SOFT-STAGE ' + (which === 'go' ? 'GO' : 'NO-GO') + ' GAUGE…');
+  setTimeout(() => {
+    try {
+      const g   = buildGeometry(p);
+      const sp  = softParams(p, g);
+      const gs  = buildGeometry(sp);                // the stage the gauge must check
+      const gp  = gaugeParams(sp, gs, which);
+      const sfx = '_SOFT';
+      gp.fname  = gp.fname.split(sfx).join('') + sfx;
+      const gg  = buildGaugeGeom(gp);
+      const dxf = buildDXFString(gp);
+      const fname = gp.fname + '.dxf';
+      const dl = saveBlob(dxf, fname, 'application/dxf');
+      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      setStatus(`✓ SAVED — ${fname} · SOFT-STAGE ${which === 'go' ? 'GO' : 'NO-GO'} ${gp.stype === 'internal' ? 'RING' : 'PLUG'}` +
+                ` · s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()}${effWarn}`, 'ok');
+      addFallbackLink(dl, fname);
+      histRecord('soft-' + which);
+    } catch (e) { setStatus('ERROR: ' + e.message, 'err'); }
+    document.getElementById('btn-gen').disabled = false;
+  }, 10);
+}
+
 // ── BASE TANGENT (SPAN) MEASUREMENT — external only ─────────────────
 // W over k teeth, micrometer anvils on two flanks k teeth apart, measuring line
 // tangent to the base circle (= normal to both involute flanks):
@@ -4388,7 +4438,7 @@ function buildStageRows(p, g, sp, gs, Wf, Ws, full) {
     ['FORM DIA (INVOLUTE TO)',                 ...O(() => F(gf.tangDia)),          F(g.tangDia),          F(gs.tangDia)],
     [actLab(p, wLab)+' MAX AT PITCH DIA',      ...O(() => F(gf.swMax)),            F(g.swMax),            F(gs.swMax)],
     [actLab(p, wLab)+' MIN AT PITCH DIA',      ...O(() => F(gf.swMin)),            F(g.swMin),            F(gs.swMin)],
-    // Effective pair: finish column only — the soft stage carries none (softParams), so '-'
+    // Effective pair: the soft column is the finish pair moved by the stock (softParams, v30)
     ...(hasEff(p) ? [
       [effLabs(internal, wLab).max,            ...O(() => F(full.p.effMax)),       F(p.effMax),           F(sp.effMax)],
       [effLabs(internal, wLab).min,            ...O(() => F(full.p.effMin)),       F(p.effMin),           F(sp.effMin)]] : []),
@@ -4989,8 +5039,9 @@ function buildGaugeRows(p, g, gpGo, gGo, gpNo, gNo) {
 // generateGaugeReport()            → gauges for sections 02–06 as entered
 // generateGaugeReport('coat','pre') → gauges for the PRE-coating (machine-to) stage
 // generateGaugeReport('ht','post')  → gauges for the POST-HT stage, and so on.
+// generateGaugeReport('soft')       → gauges for the SOFT (pre-grind) stage (v30).
 // ⛔ THE STAGE GAUGES ARE BUILT BY THE SAME CALLS AS THEIR DXF BUTTONS — coatParams /
-// htParams on the drawing params, buildGeometry on the result, then gaugeParams on
+// htParams / softParams on the drawing params, buildGeometry on the result, then gaugeParams on
 // THAT. Nothing is re-derived here, so the table cannot disagree with the file it
 // describes. Until 11.09.2026 the coating and HT gauges had DXF buttons and no table,
 // and the only gauge table on the panel silently reported the DRAWING stage — a
@@ -5002,11 +5053,13 @@ function generateGaugeReport(kind, stage) {
   if (err) { setStatus('ERROR: ' + err, 'err'); return; }
   if (kind === 'coat' && !p.coatOn) { setStatus('ERROR: turn Coating ON in section 07 first', 'err'); return; }
   if (kind === 'ht'   && !p.htOn)   { setStatus('ERROR: turn HT distortion ON in section 08 first', 'err'); return; }
+  if (kind === 'soft' && !(p.allow > 0)) { setStatus('ERROR: soft stage needs Stock allowance > 0 (section 05)', 'err'); return; }
   let ps, g, gpGo, gGo, gpNo, gNo;
   try {
     const g0 = buildGeometry(p);
     ps   = kind === 'coat' ? coatParams(p, g0, stage)
-         : kind === 'ht'   ? htParams(p, g0, stage) : p;
+         : kind === 'ht'   ? htParams(p, g0, stage)
+         : kind === 'soft' ? softParams(p, g0) : p;
     g    = kind ? buildGeometry(ps) : g0;             // the stage the gauge must check
     gpGo = gaugeParams(ps, g, 'go');   gGo = buildGaugeGeom(gpGo);
     gpNo = gaugeParams(ps, g, 'nogo'); gNo = buildGaugeGeom(gpNo);
@@ -5015,13 +5068,18 @@ function generateGaugeReport(kind, stage) {
   // HT stage takes the same _PRE_COAT / _POST_HT suffix its DXF carries, so the table
   // and the file sort together in a folder. The stage row is prepended rather than
   // built into buildGaugeRows, which stays a pure function of the params it is given.
+  // The soft stage (v30) is always derived — the drawing never describes the roughed part —
+  // and its stage row carries the stock, so a gauge table read on its own says how much.
   const S      = stage ? stage.toUpperCase() : '';
-  const sfx    = kind === 'coat' ? '_' + S + '_COAT' : kind === 'ht' ? '_' + S + '_HT' : '';
-  const isDrw  = kind === 'coat' ? p.coatDir === stage : kind === 'ht' ? p.htDir === stage : true;
+  const sfx    = kind === 'coat' ? '_' + S + '_COAT' : kind === 'ht' ? '_' + S + '_HT' : kind === 'soft' ? '_SOFT' : '';
+  const isDrw  = kind === 'coat' ? p.coatDir === stage : kind === 'ht' ? p.htDir === stage : kind !== 'soft';
   const stgLab = kind === 'coat' ? S + '-COATING' + (stage === 'pre' ? ' (MACHINE TO)' : ' (FINISHED)')
                : kind === 'ht'   ? S + '-HT'      + (stage === 'pre' ? ' (AS CUT)'    : ' (FINISHED)')
+               : kind === 'soft' ? 'SOFT STAGE (PRE-GRIND)'
                : 'DRAWING';
-  const stgTxt = stgLab + (kind ? (isDrw ? ' = DRAWING STAGE' : ' - DERIVED') : '');
+  const aTxt   = p.tunit === 'inch' ? (p.allow / 25.4).toFixed(4) + ' IN' : p.allow.toFixed(3) + ' MM';
+  const stgTxt = stgLab + (kind ? (isDrw ? ' = DRAWING STAGE' : ' - DERIVED') : '') +
+                 (kind === 'soft' ? ' - STOCK a ' + aTxt + ' ON W AND ROOT DIA' : '');
   const base   = p.fname.replace(/\.dxf$/i, '') + sfx;
   const title  = base + ' — GAUGES FOR ' + (g.internal ? 'INTERNAL' : 'EXTERNAL') + ' SPLINE' +
                  (kind ? ' · ' + stgTxt : '');
@@ -5693,6 +5751,7 @@ function histRender() {
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   const kindLab = { dxf:'DXF', soft:'SOFT', go:'GO', nogo:'NO-GO', manual:'SAVED',
+                    'soft-go':'SOFT GO', 'soft-nogo':'SOFT NO-GO',
                     'coat-pre':'PRE-COAT', 'coat-post':'POST-COAT',
                     'coat-pre-go':'PRE-GO', 'coat-pre-nogo':'PRE-NO-GO',
                     'coat-post-go':'POST-GO', 'coat-post-nogo':'POST-NO-GO',
