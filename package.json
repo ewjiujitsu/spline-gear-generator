@@ -1,6 +1,6 @@
 {
   "name": "involute-spline-gear-generator",
-  "version": "29.0.0",
+  "version": "33.0.0",
   "description": "Browser tool that generates DXF profiles for involute splines and spur/helical gears from data-sheet parameters, with soft-stage, coating and GO/NO-GO gauge outputs.",
   "main": "server.js",
   "scripts": {

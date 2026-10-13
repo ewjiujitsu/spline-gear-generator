@@ -21,7 +21,8 @@ embedded in the page; their copyright notices and the licence text are in
 - **Coating stages** — enter a per-surface coating thickness band and get the
   pre-coating size to machine and the post-coating finished size, with the
   tolerance consequences worked out
-- **GO / NO-GO gauges** — the mating profile at the max-material effective and least-material actual limits, with the effective pair carried through the soft, coating and HT stages
+- **GO / NO-GO gauges** — the mating profile at the max-material effective and least-material actual limits, with the effective pair carried through the soft, coating and HT stages; the gauge
+  tooth tip break is set per job (default R0.2, 0 = sharp)
 - **Tables** — rough vs finish, finished data, gear data, machine setup and coating,
   each exportable as `.csv` for CAD table import
 - **History** — every part you generate is logged locally with the complete input

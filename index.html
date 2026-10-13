@@ -757,7 +757,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v32 · SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v33 · SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -1232,6 +1232,13 @@
               <div class="field-name">c (blank = 0.25)</div>
               <input type="text" inputmode="decimal" id="gclr" value="" min="0" step="0.01" oninput="onChange()">
             </div>
+            <!-- v33 (13.10.2026): the GAUGE's own tooth tip break — the part's tip corner field
+                 (section 03) shapes the PART's teeth, never the gauge's. Blank = R0.2 as before. -->
+            <div class="field">
+              <div class="field-label">Gauge tooth tip break R · 0 = sharp <span class="unit">[mm]</span></div>
+              <div class="field-name">r gauge tip (blank = 0.2)</div>
+              <input type="text" inputmode="decimal" id="gtip" value="" min="0" step="0.01" oninput="onChange()">
+            </div>
           </div>
           <div class="field-row">
             <div class="field field-wide">
@@ -1243,6 +1250,8 @@
                 sectors, ~2 teeth) so index errors can't mask it; the DXF is the full profile.
                 Gauge teeth reach the part FORM &empty;; gauge root clears the part tip &empty; by c; involute held
                 true over the full engagement. Gauge-maker tolerance + wear allowance go INTO the part zone.
+                Gauge tooth tips get a break R (blank = 0.2, 0 = sharp); the involute contact ends where the
+                break starts, so a bigger R checks less of the part flank near its form &empty;.
               </div>
             </div>
           </div>
@@ -1719,7 +1728,7 @@ function isInch() { return document.getElementById('tunit').value === 'inch'; }
 // holds P [1/in] in dp mode), angles (alpha/beta/start), xn, nsegs, spank.
 const LINEAR_IDS = ['Dtip','Droot','Dtip_top','Dtip_mid','Dtip_bot','Droot_top','Droot_mid','Droot_bot',
                     'DForm','D','Db','smax','smin','effmin','effmax','mmax','mmin','rfil','rtip','pin','allow','gclr',
-                    'coat_min','coat_max','ht_min','ht_max','aroot','atip'];
+                    'coat_min','coat_max','ht_min','ht_max','aroot','atip','gtip'];
 let _lastUnit = null;   // set at init; onUnitChange converts only on a real flip
 function onUnitChange() {
   const inch = isInch();
@@ -2208,6 +2217,7 @@ function getParams() {
     spank: Math.round(evalNum(document.getElementById('spank').value)) || 0,    // base-tangent span teeth k; 0/blank = auto
     tunit: document.getElementById('tunit').value,                   // master units switch: 'mm' | 'inch' (inputs, readouts, tables, report)
     gclr:  evalNum(document.getElementById('gclr').value) * UF,   // gauge root ↔ part tip clearance [mm]; NaN = 0.25
+    gtip:  evalNum(document.getElementById('gtip').value) * UF,   // gauge tooth tip break R [mm]; NaN = 0.2, 0 = sharp (v33)
   };
 }
 
@@ -2287,6 +2297,7 @@ function validate(p) {
   }
   { const e = effErr(p); if (e) return e; }
   if (!isNaN(p.gclr) && p.gclr<0)      return 'Gauge clearance ≥ 0 (or blank)';
+  if (p.gtip<0)                        return 'Gauge tooth tip break ≥ 0 (0 = sharp, blank = 0.2)';
   if (p.spank !== 0 && (p.spank < 2 || p.spank > p.z - 1)) return 'Base tangent teeth k must be 2 … z−1 (or blank = auto)';
   if (isNaN(p.nsegs)||p.nsegs<4)      return 'n_segs must be ≥ 4';
   return null;
@@ -2479,7 +2490,7 @@ function onPartTypeChange() {
   });
   // GEAR mode: spline GO/NO-GO gauges do not apply (master gear / rolling test)
   // — buttons are already gated, grey the section-06 inputs too (10.07.2026)
-  ['effmin','effmax','gclr'].forEach(id => {
+  ['effmin','effmax','gclr','gtip'].forEach(id => {
     document.getElementById(id).disabled = gear;
     fieldOf(id).classList.toggle('derived', gear);
   });
@@ -5118,10 +5129,11 @@ function gaugeParams(p, g, which) {
   gp.Droot = p.Dtip + (internalPart ? -clr : clr);     // clears the part tip ∅ by c
   gp.DForm = p.Dtip;                                   // involute true over the engagement
   gp.rfil = 0;
-  // Gauge tooth tips get a 0.2 R break edge (10.07.2026 — the sharp
-  // flank↔tip corner was left on the missing-gap gauge); buildGaugeGeom falls
-  // back to a sharp tip if 0.2 does not fit the gauge tooth.
-  gp.rtip = 0.2;
+  // Gauge tooth tips get a break R (10.07.2026 — the sharp flank↔tip corner was left
+  // on the missing-gap gauge); buildGaugeGeom falls back to a sharp tip if it does not
+  // fit the gauge tooth. Since v33 (13.10.2026) the R is the section-06 field `gtip`
+  // (blank = 0.2, 0 = sharp) — the part's own tip field never reaches the gauge teeth.
+  gp.rtip = gaugeTipR(p);
   // The gauge derives its OWN root: never inherit the part's forced root style or
   // tip break — 'flat' + rfil 0 degenerated to R0.0001 corner arcs (below Creo's
   // import tolerance → dropped → open sketch) and IGNORED the gauge form ∅.
@@ -5156,7 +5168,10 @@ function gaugeParams(p, g, which) {
   return gp;
 }
 
-// Build gauge geometry; if the 0.2 tip break doesn't fit the gauge tooth,
+// The gauge tooth tip break asked for in section 06: blank = 0.2 (the tool before v33).
+function gaugeTipR(p) { return (!isNaN(p.gtip) && p.gtip >= 0) ? p.gtip : 0.2; }
+
+// Build gauge geometry; if the tip break doesn't fit the gauge tooth,
 // drop to a sharp tip instead of failing the whole gauge.
 function buildGaugeGeom(gp) {
   try { return buildGeometry(gp); }
@@ -5182,7 +5197,9 @@ function generateGaugeDXF(which) {
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
       const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
-      const tipTxt = gp.rtip > 0 ? `TIP BREAK R${gp.rtip.toFixed(1)}` : 'TIP SHARP (0.2 DID NOT FIT)';
+      const tipReq = gaugeTipR(p);
+      const tipTxt = gp.rtip > 0 ? `TIP BREAK R${+gp.rtip.toFixed(3)}`
+                   : tipReq > 0  ? `TIP SHARP (${+tipReq.toFixed(3)} DID NOT FIT)` : 'TIP SHARP';
       setStatus(`✓ SAVED — ${fname} · ${gp.stype === 'internal' ? 'RING' : 'PLUG'} · ${which === 'go' ? 'GO' : 'NO-GO'} s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()} · ${tipTxt} · MATES PART ORIENTATION${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord(which);
@@ -5860,7 +5877,7 @@ const FIELD_IDS = ['partno','fname','fname_auto','stype','sizemode','anchor','z'
                    'ptype','beta','hand','xn','ganchor',
                    'coat_on','coat_dir','coat_min','coat_max',
                    'ht_on','ht_dir','ht_sign','ht_basis','ht_mode','ht_min','ht_max',
-                   'aroot','tipstock','atip'];
+                   'aroot','tipstock','atip','gtip'];
 
 // ── HISTORY — every part generated on this machine (06.08.2026) ─
 // "A log of the splines/gears that were generated, with the exact values used."
@@ -5984,6 +6001,7 @@ function histRestore(id) {
   Object.entries(e.fields).forEach(([k, v]) => { const el = document.getElementById(k); if (el) el.value = v; });
   migrateTeff(e.fields);                   // pre-v29 entry: `teff` → the effective pair
   migrateSoftDia(e.fields);                // pre-v32 entry: ∅ allowances back to their defaults
+  migrateGaugeTip(e.fields);               // pre-v33 entry: gauge tip break back to its default (0.2)
   // An entry logged before v20 has no fname_auto — its name was typed by hand, so
   // treat it as MANUAL. Anything else would recompute over the stored name and break
   // the guarantee that LOAD reproduces the entry exactly.
@@ -6072,7 +6090,15 @@ function loadState() {
   });
   migrateTeff(s);
   migrateSoftDia(s);
+  migrateGaugeTip(s);
   return s;   // raw stored object — init uses it to migrate pre-mode-select states
+}
+
+// v33 MIGRATION — section 06 gained the gauge tooth tip break (`gtip`). An entry from before
+// v33 has none; blank = R0.2, exactly how its gauges were generated.
+function migrateGaugeTip(f) {
+  if (!f || f.gtip !== undefined) return;
+  document.getElementById('gtip').value = '';
 }
 
 // v32 MIGRATION — section 05 gained its own ∅ allowances (aroot / tipstock / atip). A stored
