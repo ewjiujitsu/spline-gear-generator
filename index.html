@@ -757,7 +757,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v33 · SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v34 ·SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -1564,6 +1564,11 @@
           <button class="primary" id="btn-gen" onclick="generateDXF()">
             ↓ Generate &amp; Download DXF
           </button>
+          <!-- v34 (28.10.2026): the same part with every toleranced size at one limit -->
+          <div class="btn-row two">
+            <button onclick="generateLimitDXF('max')" title="Tooth thickness / space width, tip ∅ and root ∅ all at their MAXIMUM limit">↓ Max-limits DXF</button>
+            <button onclick="generateLimitDXF('min')" title="Tooth thickness / space width, tip ∅ and root ∅ all at their MINIMUM limit">↓ Min-limits DXF</button>
+          </div>
           <div class="btn-row">
             <button onclick="generateFinishTable()">⎙ Finish Table</button>
             <button onclick="generateGearTable()" title="Drawing-style gear data sheet — GEAR mode only">⎙ Gear Data</button>
@@ -3911,6 +3916,71 @@ function generateDXF() {
     }
     document.getElementById('btn-gen').disabled=false;
   },10);
+}
+
+// ── TOLERANCE-LIMIT DXFs (v34, 28.10.2026) ───────────────────────────────
+// The author's request: for the spline values as entered, a DXF at the MAXIMUM tolerance values
+// and one at the MINIMUM. Every toleranced size goes to the SAME limit; nothing else changes:
+//   tooth thickness (ext) / space width (int): the ACTUAL band's maxi / mini — the band the
+//            drawing DXF cuts at the mid of (pins / span / balls anchors: the band they resolve to,
+//            already sorted by buildGeometry);
+//   tip ∅ and root ∅: their top / bottom limit when a band is entered (ISO or LIMITS mode). An
+//            EXACT ∅ has no band, so it stays at its value — the status line says so, rather than
+//            letting a file called MAX_LIMITS look as if that ∅ had moved.
+// "Maximum" = every size at its upper limit. On an EXTERNAL spline that is the most material (MMC),
+// on an INTERNAL one the least (LMC) — the status line names which, so the two readings of "max"
+// can never be confused. Root fillet R, form ∅ and the tip break are single values and carry
+// across unchanged; an AUTO full fillet is re-derived for the limit profile, as every stage does.
+function limitParams(p, gFin, which) {
+  const hi = (which === 'max');
+  const internal = p.stype !== 'external';
+  const lp = Object.assign({}, p);
+  lp.anchor = 'thickness';                     // band already resolved — no pin re-solve
+  const w = hi ? gFin.swMax : gFin.swMin;
+  lp.smax = w; lp.smin = w;                    // the band collapses onto the one limit
+  lp.mmax = NaN; lp.mmin = NaN;
+  const banded = B => B && !isNaN(B.top) && !isNaN(B.bot);
+  const lim = B => hi ? Math.max(B.top, B.bot) : Math.min(B.top, B.bot);
+  lp.Dtip  = banded(p.DtipBand)  ? lim(p.DtipBand)  : p.Dtip;
+  lp.Droot = banded(p.DrootBand) ? lim(p.DrootBand) : p.Droot;
+  lp.limitNoBand = [banded(p.DtipBand) ? null : 'tip ∅', banded(p.DrootBand) ? null : 'root ∅'].filter(Boolean);
+  if (internal ? (lp.Droot <= lp.Dtip) : (lp.Droot >= lp.Dtip))
+    throw new Error((hi ? 'max' : 'min') + ' limits: root ∅ crosses the tip ∅');
+  if (!(lp.smin > 0))
+    throw new Error((hi ? 'max' : 'min') + ' limits: ' + (internal ? 'space width' : 'tooth thickness') + ' ≤ 0');
+  lp.limitWhich = which;
+  lp.fname = p.fname.replace(/\.dxf$/i, '') + (hi ? '_MAX_LIMITS' : '_MIN_LIMITS');
+  return lp;
+}
+
+function generateLimitDXF(which) {
+  const p = getParams();
+  const err = validate(p);
+  if (err) { setStatus('ERROR: ' + err, 'err'); return; }
+  document.getElementById('btn-gen').disabled = true;
+  setStatus('GENERATING ' + which.toUpperCase() + '-LIMITS DXF…');
+  setTimeout(() => {
+    try {
+      const g  = buildGeometry(p);                     // drawing stage — resolves the s/t band
+      const lp = limitParams(p, g, which);
+      const dxf = buildDXFString(lp);
+      const fname = lp.fname + '.dxf';
+      const dl = saveBlob(dxf, fname, 'application/dxf');
+      const gl = buildGeometry(lp);
+      const internal = gl.internal;
+      const mat = (which === 'max') !== internal ? 'MMC — most material' : 'LMC — least material';
+      const noBand = lp.limitNoBand.length ? ' · ⚠ NO BAND ON ' + lp.limitNoBand.join(' + ').toUpperCase() + ' — EXACT VALUE USED' : '';
+      setStatus(`✓ SAVED — ${fname} · ${which.toUpperCase()} LIMITS (${mat}) · ${internal ? 'SPACE' : 'TOOTH'} ${fromMM(lp.smax,4)}` +
+                ` · TIP Ø${fromMM(lp.Dtip,4)} · ROOT Ø${fromMM(lp.Droot,4)}` +
+                ` · ${internal ? 'BTWN' : 'OVER'} PINS ${gl.pinM !== null ? fromMM(gl.pinM,4) : '—'}${unitSuffix()}` +
+                ` · ${gl.fullFillet ? 'FULL FILLET' : 'CORNER FILLETS'}${noBand}`, noBand ? 'warn' : 'ok');
+      addFallbackLink(dl, fname);
+      histRecord('limit-' + which);
+    } catch (e) {
+      setStatus('ERROR: ' + e.message, 'err');
+    }
+    document.getElementById('btn-gen').disabled = false;
+  }, 10);
 }
 
 // ── SOFT STAGE — PRE HEAT TREAT (pre-grind roughing) ─────────────────────
