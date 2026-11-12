@@ -757,7 +757,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v34 ·SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v35 ·SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -4080,6 +4080,20 @@ function coatShift(p, onDiameter) {
   const a = sgn * 2 * p.coatMin * scale, b = sgn * 2 * p.coatMax * scale;
   return { lo: Math.min(a, b), hi: Math.max(a, b), mid: (a + b) / 2, sgn };
 }
+// v35 (12.11.2026, Emil): the drawing FORM ∅ carried into a derived coating / HT stage, as the
+// REQUIREMENT on that stage's part — the gauge tip reaches exactly it. The stage zeroes DForm to
+// build its own fillet, so until v35 its gauges fell back to the model's fillet TANGENCY and
+// checked MORE flank than the drawing asks (47T m1.25 hub pre-coat: 60.672 vs ~60.296) — enough
+// to ride on a real part's fillet and refuse a good part. lo/hi = the stage's signed ∅ shift
+// range; the requirement must hold for every value in it: internal (form ∅ must reach OUT)
+// fwd form+lo / back form−lo; external (form ∅ must reach DOWN) fwd form+hi / back form−hi.
+// No drawing form ∅ → NaN → the gauge keeps the tangency fallback, as before.
+function stageFormSpec(p, fwd, lo, hi) {
+  const f0 = (p.DFormSpec > 0) ? p.DFormSpec : p.DForm;
+  if (!(f0 > 0)) return NaN;
+  if (p.stype !== 'external') return fwd ? f0 + lo : f0 - lo;
+  return fwd ? f0 + hi : f0 - hi;
+}
 // Returns the params for the OTHER stage. `target` is 'pre' | 'post'; if it is the
 // stage the drawing already describes, p is returned untouched.
 function coatParams(p, gFin, target) {
@@ -4132,6 +4146,7 @@ function coatParams(p, gFin, target) {
     : B;
   cp.DtipBand  = shiftBand(p.DtipBand);
   cp.DrootBand = shiftBand(p.DrootBand);
+  cp.DFormSpec = stageFormSpec(p, fwd, D.lo, D.hi);    // v35: the gauge tip's form ∅ at this stage
   if ((p.stype !== 'external') ? (cp.Droot <= cp.Dtip) : (cp.Droot >= cp.Dtip))
     throw new Error('coating: root ∅ crosses the tip ∅ — coating too thick');
   // Root fillet — concave corner: adding material shrinks it, removing it grows it.
@@ -4217,7 +4232,7 @@ function generateCoatGaugeDXF(stage, which) {
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
-      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      const effWarn = ((which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '') + gaugeTipWarn(gp);
       setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-COAT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('coat-' + stage + '-' + which);
@@ -4408,6 +4423,7 @@ function htParams(p, gFin, target) {
     : B;
   cp.DtipBand  = shiftBand(p.DtipBand);
   cp.DrootBand = shiftBand(p.DrootBand);
+  cp.DFormSpec = stageFormSpec(p, fwd, bLo, bHi);     // v35: the gauge tip's form ∅ at this stage
   if ((p.stype !== 'external') ? (cp.Droot <= cp.Dtip) : (cp.Droot >= cp.Dtip))
     throw new Error('HT distortion: root ∅ crosses the tip ∅ — distortion too large');
   // Root fillet — concave corner: material growing shrinks it, shrinking grows it.
@@ -4491,7 +4507,7 @@ function generateHtGaugeDXF(stage, which) {
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
-      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      const effWarn = ((which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '') + gaugeTipWarn(gp);
       setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-HT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('ht-' + stage + '-' + which);
@@ -4555,7 +4571,7 @@ function generateSoftGaugeDXF(which) {
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
-      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      const effWarn = ((which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '') + gaugeTipWarn(gp);
       setStatus(`✓ SAVED — ${fname} · SOFT-STAGE ${which === 'go' ? 'GO' : 'NO-GO'} ${gp.stype === 'internal' ? 'RING' : 'PLUG'}` +
                 ` · s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()}${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
@@ -5170,8 +5186,36 @@ function generateHtTable() {
 //            section-04 effective pair (blank → actual limit, flagged);
 //            NO-GO = actual mini (ext) / maxi (int)
 //   tips     part form ∅ AS BUILT (g.tangDia) — gauge checks the whole flank
-//   root     part tip ∅ ± clearance c (`gclr`, blank = 0.25) — never touches
-//   form ∅   part tip ∅ — true involute over the full engagement
+//   root     part tip ∅ AT ITS LIMIT ± clearance c (`gclr`, blank = 0.25) — never touches
+//   form ∅   part tip ∅ AT ITS LIMIT — true involute over the full engagement
+// v35 (12.11.2026, Emil): the gauge used the MID of a toleranced tip ∅. An in-tolerance part
+// with its tip at the limit then reached half the band into the gauge's root fillet, so a GOOD
+// part could refuse the GO gauge — the gauge must check the FLANKS only, never the major /
+// minor ∅. Limit = the side nearest the gauge: internal part (tip = minor ∅) its SMALLEST,
+// external part (tip = major ∅) its LARGEST. An EXACT tip ∅ has no band and is unchanged.
+function partTipLimit(p, internalPart) {
+  const B = p.DtipBand;
+  if (!B || isNaN(B.top) || isNaN(B.bot)) return p.Dtip;
+  // The stage's own mid ± half the band: soft/coat/HT stages move p.Dtip (softParams moves
+  // only the mid, coat/HT shift the band edges too) — mid ± half is right for all of them.
+  const half = Math.abs(B.top - B.bot) / 2;
+  return internalPart ? p.Dtip - half : p.Dtip + half;
+}
+// v35, same rule on the OTHER side (Emil 12.11.2026): the gauge TIP reaches the part's form ∅
+// (the whole flank is checked) but never comes closer than the same clearance c to the part's
+// ROOT ∅ at its limit — internal part (root = major ∅) its SMALLEST, external part (root =
+// minor ∅) its LARGEST. When the form ∅ sits within c of that root limit the tip is held back,
+// flagged (gp.tipHeld), and the flank is checked only to the held ∅.
+function partRootLimit(p, internalPart) {
+  const B = p.DrootBand;
+  if (!B || isNaN(B.top) || isNaN(B.bot)) return p.Droot;
+  const half = Math.abs(B.top - B.bot) / 2;
+  return internalPart ? p.Droot - half : p.Droot + half;
+}
+function gaugeTipWarn(gp) {
+  return gp.tipHeld ? ' · ⚠ GAUGE TIP HELD ' + fromMM(gp.gclrUsed, 3) + ' CLEAR OF THE PART ROOT — FLANK CHECKED ONLY TO ∅' +
+                      fromMM(gp.Dtip, 3) + unitSuffix() : '';
+}
 function gaugeParams(p, g, which) {
   const internalPart = p.stype !== 'external';
   const clr = (!isNaN(p.gclr) && p.gclr > 0) ? p.gclr : 0.25;
@@ -5195,9 +5239,18 @@ function gaugeParams(p, g, which) {
   // Gauge teeth reach the part's DRAWING form ∅ when one is entered (the gauge
   // checks the SPEC — a conforming part may have fillet material between its
   // as-built tangency and the drawing form ∅); fallback: as-built tangency.
-  gp.Dtip  = (p.DForm > 0) ? p.DForm : g.tangDia;
-  gp.Droot = p.Dtip + (internalPart ? -clr : clr);     // clears the part tip ∅ by c
-  gp.DForm = p.Dtip;                                   // involute true over the engagement
+  // v35: a coating / HT stage carries the drawing form ∅ as DFormSpec (stageFormSpec). The soft
+  // (pre-grind) stage does not — its flank offset moves the form ∅ by a non-diameter amount — and
+  // keeps the tangency fallback, as before.
+  let tipD = (p.DFormSpec > 0) ? p.DFormSpec : (p.DForm > 0) ? p.DForm : g.tangDia;
+  const tipMax = partRootLimit(p, internalPart) + (internalPart ? -clr : clr);   // v35: c clear of the part root limit
+  gp.tipHeld  = internalPart ? tipD > tipMax : tipD < tipMax;
+  if (gp.tipHeld) tipD = tipMax;
+  gp.Dtip  = tipD;
+  gp.gclrUsed = clr;
+  const tipLim = partTipLimit(p, internalPart);        // v35: the part tip ∅ at its LIMIT, not its mid
+  gp.Droot = tipLim + (internalPart ? -clr : clr);     // clears every in-tolerance part tip ∅ by c
+  gp.DForm = tipLim;                                   // involute true over the engagement
   gp.rfil = 0;
   // Gauge tooth tips get a break R (10.07.2026 — the sharp flank↔tip corner was left
   // on the missing-gap gauge); buildGaugeGeom falls back to a sharp tip if it does not
@@ -5266,7 +5319,7 @@ function generateGaugeDXF(which) {
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
-      const effWarn = (which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '';
+      const effWarn = ((which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '') + gaugeTipWarn(gp);
       const tipReq = gaugeTipR(p);
       const tipTxt = gp.rtip > 0 ? `TIP BREAK R${+gp.rtip.toFixed(3)}`
                    : tipReq > 0  ? `TIP SHARP (${+tipReq.toFixed(3)} DID NOT FIT)` : 'TIP SHARP';
@@ -5302,9 +5355,11 @@ function buildGaugeRows(p, g, gpGo, gGo, gpNo, gNo) {
     ['BASE DIA',                         F(p.Db),                     F(p.Db)],
     ['GAUGE '+wLab+' AT PITCH DIA',      F(gGo.swMid) + (usedEff ? ' (EFF LIMIT)' : ' (ACTUAL - NO EFF ENTERED)'),
                                          F(gNo.swMid) + ' (ACTUAL LIMIT)'],
-    ['GAUGE TIP DIA (= PART FORM DIA)',  F(gpGo.Dtip),                F(gpNo.Dtip)],
-    ['GAUGE ROOT DIA (CLEARS PART TIP)', F(gpGo.Droot),               F(gpNo.Droot)],
-    ['GAUGE FORM DIA (= PART TIP DIA)',  F(gpGo.DForm),               F(gpNo.DForm)],
+    ['GAUGE TIP DIA (= PART FORM DIA)',  F(gpGo.Dtip) + (gpGo.tipHeld ? ' (HELD c CLEAR OF ROOT)' : ''),
+                                         F(gpNo.Dtip) + (gpNo.tipHeld ? ' (HELD c CLEAR OF ROOT)' : '')],
+    ['GAUGE ROOT DIA (CLEARS PART TIP LIMIT)', F(gpGo.Droot),         F(gpNo.Droot)],
+    ['GAUGE CLEARANCE c ON DIA (TIP AND ROOT, FROM THE PART LIMITS)', F(gpGo.gclrUsed), F(gpNo.gclrUsed)],
+    ['GAUGE FORM DIA (= PART TIP LIMIT)', F(gpGo.DForm),              F(gpNo.DForm)],
     ['GAUGE ROOT FILLET (DERIVED)',      F(gGo.rfUsed),               F(gNo.rfUsed)],
     ['GAUGE TIP BREAK RAD',              gpGo.rtip > 0 ? F(gpGo.rtip) : 'SHARP', gpNo.rtip > 0 ? F(gpNo.rtip) : 'SHARP'],
     ['CHECK PIN DIA',                    F(p.pin),                    F(p.pin)],
@@ -5380,7 +5435,7 @@ function generateGaugeReport(kind, stage) {
   w.document.write(buildStageTableHTML('GO / NO-GO SPLINE GAUGE DATA' + (kind ? ' · ' + stgLab : ''),
                                        title, header, rows, csv, tsv, base + '_GAUGE_TABLE.csv'));
   w.document.close();
-  const effWarn = !hasGoEff(p) ? ' · ⚠ NO EFFECTIVE LIMIT — GO USES ACTUAL' : '';
+  const effWarn = (!hasGoEff(p) ? ' · ⚠ NO EFFECTIVE LIMIT — GO USES ACTUAL' : '') + gaugeTipWarn(gpGo);
   setStatus('✓ ' + stgLab + ' GAUGE TABLE OPENED — GO & NO-GO DXFs from the buttons beside it · .csv for Creo' + effWarn,
             effWarn ? 'warn' : 'ok');
 }
