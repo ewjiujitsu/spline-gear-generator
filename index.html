@@ -757,7 +757,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v36 ·SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v37 ·SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -1577,6 +1577,12 @@
           <div class="btn-row two">
             <button onclick="generateLimitDXF('max')" title="Tooth thickness / space width, tip ∅ and root ∅ all at their MAXIMUM limit">↓ Max-limits DXF</button>
             <button onclick="generateLimitDXF('min')" title="Tooth thickness / space width, tip ∅ and root ∅ all at their MINIMUM limit">↓ Min-limits DXF</button>
+          </div>
+          <!-- v37 (16.11.2026): a file to CHECK each limit in CAD — pins, the measuring line, ∅ arcs, labels -->
+          <div class="btn-row">
+            <button onclick="generateInspectDXF('min')" title="Min-limits profile + 2 pins + a line whose length is the pin measurement + major / form / minor ∅ + root R + info, on own layers">↓ Inspect MIN</button>
+            <button onclick="generateInspectDXF('mid')" title="Mid-limit profile (= the main DXF) + 2 pins + a line whose length is the pin measurement + major / form / minor ∅ + root R + info, on own layers">↓ Inspect MID</button>
+            <button onclick="generateInspectDXF('max')" title="Max-limits profile + 2 pins + a line whose length is the pin measurement + major / form / minor ∅ + root R + info, on own layers">↓ Inspect MAX</button>
           </div>
           <div class="btn-row">
             <button onclick="generateFinishTable()">⎙ Finish Table</button>
@@ -3303,17 +3309,22 @@ function buildGeometry(p) {
 //   creoErr : worst error if each pin is drawn TANGENT TO ONE LINE beside the point
 //             (Creo extends that line) instead of through the point itself
 //   centres : the two seated pin centres + their spaces' angles (for the Inspect DXF)
-function dxfPinCheck(p, g) {
+function dxfPinCheck(p, g, preferTh) {
   if (!g || g.pinM === null || !(p.pin > 0) || p.gear || p.altAny || !g.entities) return null;
   const TAU = 2 * Math.PI, z = p.z, r = p.pin / 2, internal = g.internal;
   const ok = i => { i = ((i % z) + z) % z;
     return i !== g.missGap && !(g.missT >= 0 && (i === g.missT || i === (g.missT + 1) % z)); };
-  let i0 = -1, i1 = -1;
-  for (let i = 0; i < z && i0 < 0; i++) {
+  // the first usable pair of spaces — or, for the Inspect DXF (v37), the pair whose
+  // first pin sits closest to the angle asked for
+  let i0 = -1, i1 = -1, bestA = Infinity;
+  for (let i = 0; i < z; i++) {
     if (!ok(i)) continue;
     const cands = (z % 2) ? [i + (z - 1) / 2, i + (z + 1) / 2] : [i + z / 2];
     const j = cands.find(ok);
-    if (j !== undefined) { i0 = i; i1 = j % z; }
+    if (j === undefined) continue;
+    if (preferTh === undefined) { i0 = i; i1 = j % z; break; }
+    const a = Math.abs(((g.startRad + i * g.pitchRad - preferTh) % TAU + TAU * 1.5) % TAU - Math.PI);
+    if (a < bestA) { bestA = a; i0 = i; i1 = j % z; }
   }
   if (i0 < 0) return null;
   const dLine = (x, y, e, inf) => {
@@ -4169,6 +4180,166 @@ function generateLimitDXF(which) {
     } catch (e) {
       setStatus('ERROR: ' + e.message, 'err');
     }
+    document.getElementById('btn-gen').disabled = false;
+  }, 10);
+}
+
+// ── INSPECT DXFs (v37, 16.11.2026) ───────────────────────────────────────
+// The author's request: one file per limit (min / mid / max) to CHECK the part in CAD, not to
+// cut it — the profile exactly as that limit's DXF; two check pins seated on the file's own
+// flank lines; ONE line through both pin centres that ends on the pins' far edges (between
+// pins: their near edges), so its LENGTH is the pin measurement; the major, minor and form ∅
+// as labelled arcs over a sector (full circles would bury the teeth); the root radius,
+// labelled REF when the tool solved it; and an info block. Each group on its own layer so it
+// can be switched off. The plain DXFs are unchanged. Text is ASCII (DIA, DEG) for Creo.
+function inspectParams(p, which) {
+  const g = buildGeometry(p);
+  if (which === 'mid') return { pp: p, gg: g };
+  const pp = limitParams(p, g, which);
+  return { pp, gg: buildGeometry(pp) };
+}
+function buildInspectDXF(p, which) {
+  const { pp, gg } = inspectParams(p, which);
+  const internal = gg.internal, TAU = 2 * Math.PI, DEG = Math.PI / 180;
+  const f4 = v => (+v).toFixed(4);
+  const d4 = v => Math.abs(v) < 5e-5 ? '0.0000' : (v > 0 ? '+' : '') + v.toFixed(4);
+  const m = p.D / p.z;
+  const hT = Math.max(0.3, 0.4 * m), hI = 1.5 * hT;             // label / info text height [mm]
+  const ro = gg.ro;
+  const ents = [];
+  const T = (x, y, s, h) => ents.push({ layer:'INSPECT_TEXT', kind:'TEXT', x, y, h: h || hT, s });
+  const Lr = (layer, x1, y1, x2, y2) => ents.push({ layer, kind:'LINE', x1, y1, x2, y2 });
+
+  // pins + the measuring line — the pair placed with its first pin nearest 12 o'clock,
+  // which leaves the 3 o'clock side clear for the diameter labels
+  const chk = dxfPinCheck(pp, gg, Math.PI / 2);
+  if (chk) {
+    const [C0, C1] = chk.centres, r = pp.pin / 2;
+    ents.push({ layer:'INSPECT_PINS', kind:'CIRCLE', cx:C0[0], cy:C0[1], r });
+    ents.push({ layer:'INSPECT_PINS', kind:'CIRCLE', cx:C1[0], cy:C1[1], r });
+    const L = Math.hypot(C1[0] - C0[0], C1[1] - C0[1]);
+    const u = [(C1[0] - C0[0]) / L, (C1[1] - C0[1]) / L];
+    const s = internal ? r : -r;                                 // ext: far edges · int: near edges
+    Lr('INSPECT_PINS', C0[0] + s * u[0], C0[1] + s * u[1], C1[0] - s * u[0], C1[1] - s * u[1]);
+    const top = C0[1] >= C1[1] ? C0 : C1;
+    T(top[0] + r + hT, top[1] + r + hT,
+      `${internal ? 'BETWEEN' : 'OVER'} PINS ${f4(chk.M)} = LENGTH OF THIS LINE - 2X DIA ${+pp.pin.toFixed(4)} PINS`);
+  }
+
+  // major / form / minor ∅ arcs over a sector at 3 o'clock, labelled in a column to the right
+  const tipDia  = pp.Dtip, rootDia = gg.singleR ? gg.rootDiaEff : pp.Droot;
+  const band = (B, isLim) => {
+    const ok = B && !isNaN(B.top) && !isNaN(B.bot);
+    if (which === 'mid') return ok ? `TOL ${f4(Math.min(B.top, B.bot))}/${f4(Math.max(B.top, B.bot))} - MID` : 'EXACT';
+    return ok ? `${which.toUpperCase()} LIMIT` : 'EXACT - NO BAND ENTERED';
+  };
+  const tipTxt  = band(p.DtipBand), rootTxt = gg.singleR ? 'FOLLOWS THE SINGLE FILLET' : band(p.DrootBand);
+  const dias = internal
+    ? [['MAJOR', rootDia, rootTxt + ' - ROOT'], ['MINOR', tipDia, tipTxt + ' - TIP']]
+    : [['MAJOR', tipDia,  tipTxt  + ' - TIP'],  ['MINOR', rootDia, rootTxt + ' - ROOT']];
+  const formRow = pp.DForm > 0
+    ? ['FORM', pp.DForm, `DRAWING - INVOLUTE TRUE TO DIA ${f4(gg.tangDia)} IN THIS FILE`]
+    : ['FORM', gg.tangDia, 'DERIVED - NO DRAWING VALUE ENTERED'];
+  const rows = [dias[0], formRow, dias[1]];
+  const half = [30, 24, 18];
+  const XL = ro + 4 * hT, Ytop = ro * Math.sin(32 * DEG) + 4 * hT, dY = 2.4 * hT;
+  rows.forEach(([name, dia, note], i) => {
+    const R = dia / 2, a = half[i] * DEG;
+    ents.push({ layer:'INSPECT_DIAS', kind:'ARC', cx:0, cy:0, r:R, sa:-half[i], ea:half[i] });
+    const Y = Ytop - i * dY;
+    Lr('INSPECT_TEXT', R * Math.cos(a), R * Math.sin(a), XL, Y);
+    T(XL + 0.5 * hT, Y - hT / 2, `${name} DIA ${f4(dia)} (${note})`);
+  });
+
+  // root radius — leader from the fillet nearest 3 o'clock
+  const rf = gg.rfUsed;
+  const rootR = gg.singleR ? `SINGLE FILLET R ${f4(rf)} (ENTERED) - ROOT DIA ${f4(gg.rootDiaEff)}`
+    : gg.rootMode === 'flat' ? `FLAT ROOT + CORNER FILLETS R ${f4(rf)} (ENTERED)`
+    : gg.fullFillet ? `FULL FILLET R ${f4(rf)} (SOLVED - REF)`
+    : pp.DForm > 0 ? `CORNER FILLETS R ${f4(rf)} (SOLVED FROM THE FORM DIA - REF)`
+    : `CORNER FILLETS R ${f4(rf)} (ENTERED)`;
+  const fil = gg.entities.filter(e => e.type === 'ARC' && Math.abs(e.r - rf) < 1e-9 && Math.hypot(e.cx, e.cy) > 1e-6)
+    .map(e => { const sw = ((e.ea - e.sa) % TAU + TAU) % TAU, am = e.sa + sw / 2;
+                return { x: e.cx + e.r * Math.cos(am), y: e.cy + e.r * Math.sin(am) }; })
+    .sort((A, B) => Math.abs(Math.atan2(A.y, A.x)) - Math.abs(Math.atan2(B.y, B.x)))[0];
+  const Yr = Ytop - 3 * dY;
+  if (fil) Lr('INSPECT_TEXT', fil.x, fil.y, XL, Yr);
+  T(XL + 0.5 * hT, Yr - hT / 2, 'ROOT ' + rootR);
+
+  // info block under the part
+  const lim = which === 'mid' ? 'MID OF TOLERANCE'
+    : `${which.toUpperCase()} LIMITS - ${(which === 'max') !== internal ? 'MMC MOST MATERIAL' : 'LMC LEAST MATERIAL'}`;
+  const pc = chk ? chk.contact : null;
+  const now = new Date(), dd = n => String(n).padStart(2, '0');
+  const info = [
+    `INSPECT DXF - ${((document.getElementById('partno') || {}).value || p.fname || '').replace(/[^\x20-\x7E]/g, '')} - ${lim}`,
+    `${internal ? 'INTERNAL' : 'EXTERNAL'} SPLINE - Z ${p.z} - MODULE ${m.toFixed(4)} - PA ${gg.alphaDeg.toFixed(2)} DEG - PITCH DIA ${f4(p.D)} - BASE DIA ${f4(p.Db)}`,
+    `ACTUAL ${internal ? 'SPACE WIDTH' : 'TOOTH THICKNESS'} AT PITCH DIA ${f4(gg.swMid)}`,
+    chk ? `${internal ? 'BETWEEN' : 'OVER'} PINS ${f4(gg.pinM)} TRUE INVOLUTE - ${f4(chk.M)} IN THIS FILE (DIFF ${d4(chk.err)})`
+        : 'NO PIN DIAMETER ENTERED - NO PINS DRAWN',
+    !pc ? '' : pc.snapped
+      ? `PIN TOUCHES THE POINT BETWEEN FLANK SEGMENTS ${pc.segTip} AND ${pc.segTip + 1} COUNTED FROM THE TOOTH TIP - CONTACT DIA ${f4(pc.dia)}`
+      : `WARNING - THE PIN TOUCHES THE ${pc.why.toUpperCase()} AT DIA ${f4(pc.dia)} - NOT THE INVOLUTE`,
+    `FLANK ${gg.nSegs} SEGMENTS PER SIDE - MAX ${f4(gg.flankDevMax)} OFF THE TRUE INVOLUTE`,
+    'ROOT ' + rootR + (gg.tipFillet ? (gg.tipChamfer ? ` - TIP CHAMFER ${f4(gg.tipR)} X 45 DEG` : ` - TIP R ${f4(gg.tipR)}`) : ' - TIP SHARP'),
+    'LAYERS PROFILE / INSPECT_PINS / INSPECT_DIAS / INSPECT_TEXT - ALL DIMENSIONS MM',
+    `SPLINE GENERATOR v37 - ${dd(now.getDate())}.${dd(now.getMonth() + 1)}.${now.getFullYear()}`
+  ].filter(Boolean);
+  info.forEach((s, i) => T(-ro, -ro - 2.5 * hI - i * 1.7 * hI, s, hI));
+
+  // write — R12 with a LAYER table, profile as one closed POLYLINE per loop
+  let hd = 1;
+  const hx = () => (hd++).toString(16).toUpperCase().padStart(4, '0');
+  const fmt = n => parseFloat(n.toFixed(8));
+  const layers = [['0', 7], ['PROFILE', 7], ['INSPECT_PINS', 1], ['INSPECT_DIAS', 3], ['INSPECT_TEXT', 5]];
+  const out = ['0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n0\nENDSEC',
+    '0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n70\n1\n0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB' +
+    '\n0\nTABLE\n2\nLAYER\n70\n' + layers.length +
+    layers.map(([n, c]) => `\n0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS`).join('') + '\n0\nENDTAB\n0\nENDSEC',
+    '0\nSECTION\n2\nENTITIES'];
+  for (const loop of chainLoops(gg.entities)) {
+    out.push(`0\nPOLYLINE\n5\n${hx()}\n8\nPROFILE\n66\n1\n70\n${loop.closed ? 1 : 0}\n10\n0.0\n20\n0.0\n30\n0.0`);
+    for (const v of loop.verts) {
+      let s = `0\nVERTEX\n5\n${hx()}\n8\nPROFILE\n10\n${fmt(v.x)}\n20\n${fmt(v.y)}\n30\n0.0`;
+      if (Math.abs(v.bulge) > 1e-12) s += `\n42\n${fmt(v.bulge)}`;
+      out.push(s);
+    }
+    out.push(`0\nSEQEND\n5\n${hx()}\n8\nPROFILE`);
+  }
+  for (const e of ents) {
+    const head = `5\n${hx()}\n8\n${e.layer}`;
+    if (e.kind === 'LINE')   out.push(`0\nLINE\n${head}\n10\n${fmt(e.x1)}\n20\n${fmt(e.y1)}\n30\n0.0\n11\n${fmt(e.x2)}\n21\n${fmt(e.y2)}\n31\n0.0`);
+    if (e.kind === 'CIRCLE') out.push(`0\nCIRCLE\n${head}\n10\n${fmt(e.cx)}\n20\n${fmt(e.cy)}\n30\n0.0\n40\n${fmt(e.r)}`);
+    if (e.kind === 'ARC')    out.push(`0\nARC\n${head}\n10\n${fmt(e.cx)}\n20\n${fmt(e.cy)}\n30\n0.0\n40\n${fmt(e.r)}\n50\n${fmt(norm360(e.sa))}\n51\n${fmt(norm360(e.ea))}`);
+    if (e.kind === 'TEXT')   out.push(`0\nTEXT\n${head}\n10\n${fmt(e.x)}\n20\n${fmt(e.y)}\n30\n0.0\n40\n${fmt(e.h)}\n1\n${e.s}`);
+  }
+  out.push('0\nENDSEC\n0\nEOF');
+  return { dxf: out.join('\n'), pp, gg, chk, ents };
+}
+function generateInspectDXF(which) {
+  const p = getParams();
+  const err = validate(p);
+  if (err) { setStatus('ERROR: ' + err, 'err'); return; }
+  if (p.gear || p.altAny) {
+    setStatus('ERROR: the Inspect DXF is for plain splines — a gear is measured over balls, and the alternate patterns have no physical pin value', 'err');
+    return;
+  }
+  document.getElementById('btn-gen').disabled = true;
+  setStatus('GENERATING ' + which.toUpperCase() + ' INSPECT DXF…');
+  setTimeout(() => {
+    try {
+      const r = buildInspectDXF(p, which);
+      const fname = p.fname.replace(/\.dxf$/i, '') + '_INSPECT_' + which.toUpperCase() + '.dxf';
+      const dl = saveBlob(r.dxf, fname, 'application/dxf');
+      const pinTxt = r.chk
+        ? ` · THE LINE = ${r.gg.internal ? 'BTWN' : 'OVER'} PINS ${fromMM(r.chk.M, 4)}${unitSuffix()} (Δ ${fmtDelta(r.chk.err)})`
+          + (r.chk.contact && !r.chk.contact.snapped ? ' · ⚠ PIN TOUCHES THE ' + r.chk.contact.why.toUpperCase() : '')
+        : ' · ⚠ NO PIN ∅ — NO PINS DRAWN';
+      setStatus(`✓ SAVED — ${fname} · ${which.toUpperCase()} · PROFILE + PINS + MEASURING LINE + MAJOR / FORM / MINOR ∅ + ROOT R + INFO · OWN LAYERS${pinTxt}`,
+                (r.chk && (!r.chk.contact || r.chk.contact.snapped)) ? 'ok' : 'warn');
+      addFallbackLink(dl, fname);
+      histRecord('inspect-' + which);
+    } catch (e) { setStatus('ERROR: ' + e.message, 'err'); }
     document.getElementById('btn-gen').disabled = false;
   }, 10);
 }
@@ -6289,7 +6460,9 @@ function histRender() {
                     'coat-post-go':'POST-GO', 'coat-post-nogo':'POST-NO-GO',
                     'ht-pre':'PRE-HT', 'ht-post':'POST-HT',
                     'ht-pre-go':'PRE-HT GO', 'ht-pre-nogo':'PRE-HT NO-GO',
-                    'ht-post-go':'POST-HT GO', 'ht-post-nogo':'POST-HT NO-GO' };
+                    'ht-post-go':'POST-HT GO', 'ht-post-nogo':'POST-HT NO-GO',
+                    'limit-max':'MAX LIMITS', 'limit-min':'MIN LIMITS',
+                    'inspect-min':'INSPECT MIN', 'inspect-mid':'INSPECT MID', 'inspect-max':'INSPECT MAX' };
   box.innerHTML = list.map(e => {
     const d = new Date(e.ts);
     const when = isNaN(d) ? '' : d.toLocaleDateString('en-GB') + ' ' +
