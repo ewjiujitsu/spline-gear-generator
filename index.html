@@ -757,7 +757,7 @@
       <div class="header-title">DXF <span>Generator</span></div>
       <div class="header-subtitle">ANSI B92.1 / ISO 4156 splines + SPUR &amp; HELICAL gears · v7 · exact polyline · soft-stage grinding stock + HT distortion + rough/finish/gear tables</div>
     </div>
-    <div class="header-badge">KAIZEN TOOL v35 ·SPLINE + GEAR + COATING + HT</div>
+    <div class="header-badge">KAIZEN TOOL v36 ·SPLINE + GEAR + COATING + HT</div>
   </header>
 
   <div class="main">
@@ -1526,6 +1526,15 @@
         <div class="readout-row">
           <span class="readout-key" id="rdk-pins-min">Between pins mini (check!)</span>
           <span class="readout-val" id="rd-pins-min">—</span>
+        </div>
+        <!-- v36 (16.11.2026): the pins measured on the DXF's own lines, and the point they touch -->
+        <div class="readout-row">
+          <span class="readout-key" id="rdk-dxfpins">DXF as drawn — pins mid</span>
+          <span class="readout-val" id="rd-dxfpins">—</span>
+        </div>
+        <div class="readout-row">
+          <span class="readout-key">Pin touches (counted from the tooth tip corner)</span>
+          <span class="readout-val" id="rd-pintouch">—</span>
         </div>
         <div class="readout-row">
           <span class="readout-key" id="rdk-soft">Soft stage — between pins mid</span>
@@ -2685,7 +2694,9 @@ function buildGeometry(p) {
   //   internal: BETWEEN pins  M = 2Rc − d   external: OVER pins  M = 2Rc + d
   //   odd z: gauge line offset by 90°/z ⇒ factor cos(90°/z) on 2Rc.
   // Returns null if a pin of diameter pinDia cannot seat tangent to both flanks.
-  function pinMeasureFor(wVal, pinDia) {
+  // pinCentreFor (v36, 16.11.2026) = the pin-centre radius the measurement is built on,
+  // split out so the flank break point can be placed exactly where that pin touches.
+  function pinCentreFor(wVal, pinDia) {
     const hsbX = wVal / (2 * rp) + inv_a_p;
     const phi0X = internal ? thRef - hsbX : thRef + pitch / 2 - hsbX;
     const dAt = (rc) => distToFlank(rc * Math.cos(thRef), rc * Math.sin(thRef), rb, phi0X, tmax).d;
@@ -2698,7 +2709,11 @@ function buildGeometry(p) {
       const high = dAt(rc) - pinDia/2 > 0;
       if (high === internal) plo = rc; else phi = rc;
     }
-    const Rc = (plo + phi) / 2;
+    return (plo + phi) / 2;
+  }
+  function pinMeasureFor(wVal, pinDia) {
+    const Rc = pinCentreFor(wVal, pinDia);
+    if (Rc === null) return null;
     const twoRc = (z % 2 === 0) ? 2 * Rc : 2 * Rc * Math.cos(Math.PI / (2 * z));
     return internal ? twoRc - pinDia : twoRc + pinDia;
   }
@@ -2963,7 +2978,69 @@ function buildGeometry(p) {
   const tA = internal ? tTipEnd : tTang;
   const tB = internal ? tTang : tTipEnd;
   const tSamples = [];
-  for (let k = 0; k <= n_segs; k++) tSamples.push(tA + (tB - tA) * k / n_segs);
+  // ── PIN-CONTACT BREAK POINT (v36, 16.11.2026) ──────────────────────
+  // The flank is written as n_segs chords whose ends lie ON the involute; between
+  // them each chord sits inside the convex flank, so a pin drawn on the DXF sinks
+  // and reads LOW. Found by the author in Creo: 62.658 over 2.5 pins where the
+  // mid is 62.6615 — 5 segments/side, −3.5 µm; the error is not monotonic in
+  // n_segs (6 segs −0.15, 8 segs −1.39) because it depends on where along a chord
+  // the pin lands. Fix: one break point goes EXACTLY where the pin touches the
+  // true involute, the rest stay evenly spread either side of it. The pin then
+  // sits on that point, so a pin on the DXF reads the true value at ANY segment
+  // count, and the segment count (Creo's load) is unchanged. Every limit / stage /
+  // gauge build places its own point, because each is built by this function with
+  // its own band. Not for gears (balls, helix) or the alternate patterns (their
+  // pin readout is not a physical measurement).
+  // Largest gap between a chord and the true involute over a set of flank params
+  // (all flanks are rotated / mirrored copies of the reference one)
+  const chordDevMax = (ts) => {
+    let dm = 0;
+    for (let k = 0; k + 1 < ts.length; k++) {
+      const A = invPt(rb, phi0Ref, ts[k]), B = invPt(rb, phi0Ref, ts[k + 1]);
+      const vx = B[0] - A[0], vy = B[1] - A[1], L = Math.hypot(vx, vy);
+      if (!(L > 0)) continue;
+      for (let j = 1; j < 32; j++) {
+        const P = invPt(rb, phi0Ref, ts[k] + (ts[k + 1] - ts[k]) * j / 32);
+        const dev = Math.abs((P[0] - A[0]) * vy - (P[1] - A[1]) * vx) / L;
+        if (dev > dm) dm = dev;
+      }
+    }
+    return dm;
+  };
+  let pinContact = null;
+  // p.noPinSnap: regression switch only (never set by the page) — with it, the flank
+  // sampling is v35's evenly spread points, byte for byte.
+  if (p.pin > 0 && !p.gear && !p.altAny && !p.noPinSnap) {
+    const RcC = pinCentreFor(wm, p.pin);
+    if (RcC !== null) {
+      const tC   = distToFlank(RcC * Math.cos(thRef), RcC * Math.sin(thRef), rb, phi0Ref, tmax).t;
+      const frac = (tC - tA) / (tB - tA);
+      const dC   = 2 * rb * Math.sqrt(1 + tC * tC);
+      if (frac > 1e-6 && frac < 1 - 1e-6) {
+        // kC segments below the point, n_segs − kC above, each side evenly spread;
+        // every split is tried and the one whose worst chord sits closest to the
+        // involute is kept (a lopsided split would lengthen chords on one side)
+        let best = null;
+        for (let kT = 1; kT <= n_segs - 1; kT++) {
+          const ts = [];
+          for (let j = 0; j <= kT; j++)          ts.push(tA + (tC - tA) * j / kT);
+          for (let j = 1; j <= n_segs - kT; j++) ts.push(tC + (tB - tC) * j / (n_segs - kT));
+          const d = chordDevMax(ts);
+          if (!best || d < best.d - 1e-12) best = { kT, ts, d };
+        }
+        const kC = best.kT;
+        tSamples.push(...best.ts);
+        // segments counted from the TOOTH TIP corner: the point sits between
+        // segment segTip and segTip + 1 (ext: tip end = tB · int: tip end = tA)
+        pinContact = { snapped: true, t: tC, dia: dC, segTip: internal ? kC : n_segs - kC, nSegs: n_segs };
+      } else {
+        pinContact = { snapped: false, dia: dC, nSegs: n_segs,
+                       why: (frac <= 1e-6) === internal ? 'tip corner' : 'root fillet' };
+      }
+    }
+  }
+  if (!tSamples.length) for (let k = 0; k <= n_segs; k++) tSamples.push(tA + (tB - tA) * k / n_segs);
+  const flankDevMax = chordDevMax(tSamples);
 
   const entities = [];
   let majArcSpan = 0, filArcSpan = 0;
@@ -3206,11 +3283,110 @@ function buildGeometry(p) {
     tipLandDeg: 2 * (tipFil ? tipFil.tipOff : half_tip) * 180 / Math.PI,
     tangDia: 2 * tangR,
     pinM, pinMmax, pinMmin,
+    pinContact, flankDevMax, nSegs: n_segs,             // v36 — the DXF check (dxfPinCheck)
+    startRad: start_rad, pitchRad: pitch, missT, missGap: p.oneGap ? p.missIdx : -1,
     alphaDeg: alpha_p * 180 / Math.PI,
     module: p.D / z,
     majSpan: majArcSpan,
     filSpan: filArcSpan,
   };
+}
+
+// ── DXF CHECK (v36, 16.11.2026) ─────────────────────────────────────
+// Measures the pins ON THE FILE'S OWN LINES AND ARCS — exactly what the author does in Creo
+// (two circles tangent to the flanks, distance over them) — and compares it with the
+// true-involute value the readout has always shown. Returns null where a pin reading
+// is not a physical measurement (no pin, gears, alternate patterns).
+//   M       : over / between pins measured on the DXF as written
+//   err     : M − true value (≈ 0 since the v36 break point; it would show the
+//             chord error on any build where the point could not be placed)
+//   creoErr : worst error if each pin is drawn TANGENT TO ONE LINE beside the point
+//             (Creo extends that line) instead of through the point itself
+//   centres : the two seated pin centres + their spaces' angles (for the Inspect DXF)
+function dxfPinCheck(p, g) {
+  if (!g || g.pinM === null || !(p.pin > 0) || p.gear || p.altAny || !g.entities) return null;
+  const TAU = 2 * Math.PI, z = p.z, r = p.pin / 2, internal = g.internal;
+  const ok = i => { i = ((i % z) + z) % z;
+    return i !== g.missGap && !(g.missT >= 0 && (i === g.missT || i === (g.missT + 1) % z)); };
+  let i0 = -1, i1 = -1;
+  for (let i = 0; i < z && i0 < 0; i++) {
+    if (!ok(i)) continue;
+    const cands = (z % 2) ? [i + (z - 1) / 2, i + (z + 1) / 2] : [i + z / 2];
+    const j = cands.find(ok);
+    if (j !== undefined) { i0 = i; i1 = j % z; }
+  }
+  if (i0 < 0) return null;
+  const dLine = (x, y, e, inf) => {
+    const vx = e.x2 - e.x1, vy = e.y2 - e.y1, L2 = vx * vx + vy * vy;
+    let t = ((x - e.x1) * vx + (y - e.y1) * vy) / L2;
+    if (!inf) t = Math.max(0, Math.min(1, t));
+    return Math.hypot(e.x1 + t * vx - x, e.y1 + t * vy - y);
+  };
+  const dArc = (x, y, e) => {
+    const sweep = ((e.ea - e.sa) % TAU + TAU) % TAU;      // sa/ea are not principal — reduce
+    const rel = ((Math.atan2(y - e.cy, x - e.cx) - e.sa) % TAU + TAU) % TAU;
+    if (rel <= sweep) return Math.abs(Math.hypot(x - e.cx, y - e.cy) - e.r);
+    return Math.min(Math.hypot(e.cx + e.r * Math.cos(e.sa) - x, e.cy + e.r * Math.sin(e.sa) - y),
+                    Math.hypot(e.cx + e.r * Math.cos(e.ea) - x, e.cy + e.r * Math.sin(e.ea) - y));
+  };
+  const mid = e => e.type === 'LINE' ? [(e.x1 + e.x2) / 2, (e.y1 + e.y2) / 2]
+    : (() => { const s = ((e.ea - e.sa) % TAU + TAU) % TAU, a = e.sa + s / 2;
+               return [e.cx + e.r * Math.cos(a), e.cy + e.r * Math.sin(a)]; })();
+  const near = th => g.entities.filter(e => {
+    if (e.type !== 'LINE' && e.type !== 'ARC') return false;
+    const m = mid(e), a = Math.atan2(m[1], m[0]);
+    return Math.abs(((a - th) % TAU + TAU * 1.5) % TAU - Math.PI) < 0.75 * g.pitchRad;
+  });
+  // bisect the centre radius on the space centreline until the pin just touches
+  const seatOn = (th, ents, distFn) => {
+    const f = R => Math.min(...ents.map(e => distFn(R * Math.cos(th), R * Math.sin(th), e))) - r;
+    let a = internal ? g.ri - p.pin : g.ri, b = internal ? g.ro : g.ro + p.pin;
+    let fa = f(a); const fb = f(b);
+    if (!(fa * fb < 0)) return null;
+    for (let i = 0; i < 80; i++) { const m = (a + b) / 2, fm = f(m); if (fm * fa > 0) { a = m; fa = fm; } else b = m; }
+    return (a + b) / 2;
+  };
+  const anyDist = (x, y, e) => e.type === 'LINE' ? dLine(x, y, e, false) : dArc(x, y, e);
+  const th0 = g.startRad + i0 * g.pitchRad, th1 = g.startRad + i1 * g.pitchRad;
+  const n0 = near(th0), n1 = near(th1);
+  const R0 = seatOn(th0, n0, anyDist), R1 = seatOn(th1, n1, anyDist);
+  if (R0 === null || R1 === null) return null;
+  const C0 = [R0 * Math.cos(th0), R0 * Math.sin(th0)], C1 = [R1 * Math.cos(th1), R1 * Math.sin(th1)];
+  const cd = Math.hypot(C1[0] - C0[0], C1[1] - C0[1]);
+  const M = internal ? cd - p.pin : cd + p.pin;
+  // Creo variant: tangent to the infinite line of ONE chord beside the contact, per flank
+  let creoErr = (g.pinContact && g.pinContact.snapped) ? 0 : null;
+  const lines0 = creoErr === null ? [] : n0.filter(e => e.type === 'LINE');
+  const side = e => { const m = mid(e); return Math.sign(Math.cos(th0) * m[1] - Math.sin(th0) * m[0]); };
+  const pick = s => lines0.filter(e => side(e) === s)
+    .sort((a, b) => dLine(C0[0], C0[1], a, false) - dLine(C0[0], C0[1], b, false)).slice(0, 2)
+    .sort((a, b) => Math.hypot(...mid(a)) - Math.hypot(...mid(b)));        // [inner, outer]
+  const L = pick(1), Rr = pick(-1);
+  const kz = (z % 2 === 0) ? 1 : Math.cos(Math.PI / (2 * z));
+  for (let c = 0; c < 2; c++) {
+    if (!L[c] || !Rr[c]) continue;
+    const Rc = seatOn(th0, [L[c], Rr[c]], (x, y, e) => dLine(x, y, e, true));
+    if (Rc === null) continue;
+    const Mc = internal ? 2 * Rc * kz - p.pin : 2 * Rc * kz + p.pin;
+    creoErr = Math.max(creoErr, Math.abs(Mc - g.pinM));
+  }
+  return { M, err: M - g.pinM, creoErr, contact: g.pinContact, flankDev: g.flankDevMax,
+           centres: [C0, C1], spaces: [th0, th1] };
+}
+// Signed 4-dp difference without a "-0.0000" for a rounding remainder
+function fmtDelta(d) {
+  const s = fromMM(d, 4);
+  return /^-?0\.0+$/.test(String(s).trim()) ? fromMM(0, 4) : (d > 0 ? '+' : '') + s;
+}
+// One short status-line note for every DXF the tool writes.
+function dxfCheckNote(p, g) {
+  let c = null;
+  try { c = dxfPinCheck(p, g); } catch (e) { return ''; }
+  if (!c) return '';
+  const pc = c.contact;
+  const where = pc && pc.snapped ? ` · PIN ON THE POINT BETWEEN SEG ${pc.segTip}|${pc.segTip + 1} FROM TIP`
+              : pc ? ` · ⚠ PIN TOUCHES THE ${pc.why.toUpperCase()}` : '';
+  return ` · DXF ${g.internal ? 'BTWN' : 'OVER'} PINS ${fromMM(c.M, 4)} (Δ ${fmtDelta(c.err)})${where}`;
 }
 
 // ── READOUT ─────────────────────────────────────────────────────────
@@ -3260,6 +3436,19 @@ function updateReadout(p, g) {
   document.getElementById('rd-pins-min').textContent = g.pinMmin !== null
     ? fromMM(g.pinMmin,4)+U+' /'+fromMM(p.pin,3)
     : '—';
+  // v36 — the same pins measured on the DXF's own lines, and where they touch
+  let chk = null;
+  try { chk = dxfPinCheck(p, g); } catch (e) { chk = null; }
+  document.getElementById('rdk-dxfpins').textContent = 'DXF as drawn — ' + (g.internal ? 'between' : 'over') + ' pins mid';
+  document.getElementById('rd-dxfpins').textContent = chk
+    ? fromMM(chk.M,4)+U+' (Δ '+fmtDelta(chk.err)+') · flank ≤ '+fromMM(chk.flankDev,4)+' off the involute'
+    : '—';
+  const pc = chk ? chk.contact : null;
+  document.getElementById('rd-pintouch').textContent = !pc ? '—'
+    : pc.snapped
+    ? 'the point between segment '+pc.segTip+' and '+(pc.segTip+1)+' of '+pc.nSegs+' · ∅'+fromMM(pc.dia,3)
+      + (chk.creoErr !== null ? ' · tangent to one line instead: ≤ '+fromMM(chk.creoErr,4) : '')
+    : '⚠ the '+pc.why+' (∅'+fromMM(pc.dia,3)+') — not the involute';
   // Soft-stage (pre-HT) quick check: over/between pins at the MID of the offset band
   let softTxt = '—';
   if (p.allow > 0) {
@@ -3326,7 +3515,7 @@ function updateReadout(p, g) {
 }
 
 function clearReadout() {
-  ['rd-mod','rd-alpha','rd-rfil','rd-form','rd-pins-max','rd-pins','rd-pins-min','rd-soft','rd-maj','rd-ent'].forEach(id=>{
+  ['rd-mod','rd-alpha','rd-rfil','rd-form','rd-pins-max','rd-pins','rd-pins-min','rd-dxfpins','rd-pintouch','rd-soft','rd-maj','rd-ent'].forEach(id=>{
     document.getElementById(id).textContent='—';
   });
 }
@@ -3908,6 +4097,7 @@ function generateDXF() {
       // this is the last moment before the file leaves the tool and lands in CAD.
       const rootNote = rootDiaNote(p, g);
       setStatus(`✓ SAVED — ${fname} · ${g.internal?'INT':'EXT'} · ${fileEnts} · ${g.fullFillet?'FULL FILLET':'CORNER FILLETS'}`
+                + dxfCheckNote(p, g)
                 + (rootNote ? `<br>${rootNote}` : ''), rootNote ? 'warn' : 'ok');
       addFallbackLink(dl,fname);
       histRecord('dxf');
@@ -3973,7 +4163,7 @@ function generateLimitDXF(which) {
       setStatus(`✓ SAVED — ${fname} · ${which.toUpperCase()} LIMITS (${mat}) · ${internal ? 'SPACE' : 'TOOTH'} ${fromMM(lp.smax,4)}` +
                 ` · TIP Ø${fromMM(lp.Dtip,4)} · ROOT Ø${fromMM(lp.Droot,4)}` +
                 ` · ${internal ? 'BTWN' : 'OVER'} PINS ${gl.pinM !== null ? fromMM(gl.pinM,4) : '—'}${unitSuffix()}` +
-                ` · ${gl.fullFillet ? 'FULL FILLET' : 'CORNER FILLETS'}${noBand}`, noBand ? 'warn' : 'ok');
+                ` · ${gl.fullFillet ? 'FULL FILLET' : 'CORNER FILLETS'}${dxfCheckNote(lp, gl)}${noBand}`, noBand ? 'warn' : 'ok');
       addFallbackLink(dl, fname);
       histRecord('limit-' + which);
     } catch (e) {
@@ -4193,7 +4383,7 @@ function generateCoatDXF(stage) {
       const cbar = (p.coatMin + p.coatMax) / 2;
       setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-COAT${isDrawingStage ? ' (= the drawing stage, unshifted)' : ' · c̄ ' + fromMM(cbar,4)}` +
                 ` · TIP Ø${fromMM(cp.Dtip,4)} · ROOT Ø${fromMM(cp.Droot,4)}` +
-                ` · ${gc.internal?'BTWN':'OVER'} PINS MID ${gc.pinM !== null ? fromMM(gc.pinM,4) : '—'}${unitSuffix()}`, 'ok');
+                ` · ${gc.internal?'BTWN':'OVER'} PINS MID ${gc.pinM !== null ? fromMM(gc.pinM,4) : '—'}${unitSuffix()}${dxfCheckNote(cp, gc)}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('coat-' + stage);
     } catch (e) {
@@ -4228,12 +4418,12 @@ function generateCoatGaugeDXF(stage, which) {
       // in one case, differently placed in the other. (the author, 14.08.2026.)
       const sfx = (stage === 'pre' ? '_PRE_COAT' : '_POST_COAT');
       gp.fname  = gp.fname.split(sfx).join('') + sfx;
-      buildGaugeGeom(gp);
+      const gg  = buildGaugeGeom(gp);
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
       const effWarn = ((which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '') + gaugeTipWarn(gp);
-      setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-COAT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${effWarn}`, 'ok');
+      setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-COAT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${dxfCheckNote(gp, gg)}${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('coat-' + stage + '-' + which);
     } catch (e) { setStatus('ERROR: ' + e.message, 'err'); }
@@ -4467,7 +4657,7 @@ function generateHtDXF(stage) {
       setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-HT${isDrawingStage ? ' (= the drawing stage, unshifted)' : ' · d̄ ' + fromMM(sc.d.mid, 4) + '/surface'}` +
                 ` · TIP Ø${fromMM(cp.Dtip,4)} · ROOT Ø${fromMM(cp.Droot,4)}` +
                 ` · ${gc.internal?'BTWN':'OVER'} PINS MID ${gc.pinM !== null ? fromMM(gc.pinM,4) : '—'}${unitSuffix()}` +
-                ` · SCATTER ${isFinite(sc.pct) ? sc.pct.toFixed(1) : '∞'}% ${p.htMode === 'narrow' ? 'APPLIED' : 'REPORTED ONLY'}`, 'ok');
+                ` · SCATTER ${isFinite(sc.pct) ? sc.pct.toFixed(1) : '∞'}% ${p.htMode === 'narrow' ? 'APPLIED' : 'REPORTED ONLY'}${dxfCheckNote(cp, gc)}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('ht-' + stage);
     } catch (e) {
@@ -4503,12 +4693,12 @@ function generateHtGaugeDXF(stage, which) {
       // last, and the two stages sort together in a folder.
       const sfx = (stage === 'pre' ? '_PRE_HT' : '_POST_HT');
       gp.fname  = gp.fname.split(sfx).join('') + sfx;
-      buildGaugeGeom(gp);
+      const gg  = buildGaugeGeom(gp);
       const dxf = buildDXFString(gp);
       const fname = gp.fname + '.dxf';
       const dl = saveBlob(dxf, fname, 'application/dxf');
       const effWarn = ((which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '') + gaugeTipWarn(gp);
-      setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-HT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${effWarn}`, 'ok');
+      setStatus(`✓ SAVED — ${fname} · ${stage.toUpperCase()}-HT ${which === 'go' ? 'GO' : 'NO-GO'} gauge${dxfCheckNote(gp, gg)}${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('ht-' + stage + '-' + which);
     } catch (e) { setStatus('ERROR: ' + e.message, 'err'); }
@@ -4535,7 +4725,7 @@ function generateSoftDXF() {
       const gs = buildGeometry(sp);
       setStatus(`✓ SAVED — ${fname} · SOFT ΔW+${fromMM(p.allow,3)} · ROOT Ø${fromMM(sp.Droot,3)}` +
                 (softTipA(p) > 0 ? ` · TIP Ø${fromMM(sp.Dtip,3)}` : '') +
-                ` · ${g.internal?'BTWN':'OVER'} PINS MID ${gs.pinM !== null ? fromMM(gs.pinM,4) : '—'}${unitSuffix()}`, 'ok');
+                ` · ${g.internal?'BTWN':'OVER'} PINS MID ${gs.pinM !== null ? fromMM(gs.pinM,4) : '—'}${unitSuffix()}${dxfCheckNote(sp, gs)}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('soft');
     } catch (e) {
@@ -4573,7 +4763,7 @@ function generateSoftGaugeDXF(which) {
       const dl = saveBlob(dxf, fname, 'application/dxf');
       const effWarn = ((which === 'go' && !hasGoEff(p)) ? ' · ⚠ NO EFFECTIVE LIMIT — USED ACTUAL' : '') + gaugeTipWarn(gp);
       setStatus(`✓ SAVED — ${fname} · SOFT-STAGE ${which === 'go' ? 'GO' : 'NO-GO'} ${gp.stype === 'internal' ? 'RING' : 'PLUG'}` +
-                ` · s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()}${effWarn}`, 'ok');
+                ` · s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()}${dxfCheckNote(gp, gg)}${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord('soft-' + which);
     } catch (e) { setStatus('ERROR: ' + e.message, 'err'); }
@@ -5323,7 +5513,7 @@ function generateGaugeDXF(which) {
       const tipReq = gaugeTipR(p);
       const tipTxt = gp.rtip > 0 ? `TIP BREAK R${+gp.rtip.toFixed(3)}`
                    : tipReq > 0  ? `TIP SHARP (${+tipReq.toFixed(3)} DID NOT FIT)` : 'TIP SHARP';
-      setStatus(`✓ SAVED — ${fname} · ${gp.stype === 'internal' ? 'RING' : 'PLUG'} · ${which === 'go' ? 'GO' : 'NO-GO'} s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()} · ${tipTxt} · MATES PART ORIENTATION${effWarn}`, 'ok');
+      setStatus(`✓ SAVED — ${fname} · ${gp.stype === 'internal' ? 'RING' : 'PLUG'} · ${which === 'go' ? 'GO' : 'NO-GO'} s/t ${fromMM(gp.smax,4)} · PINS ${gg.pinM !== null ? fromMM(gg.pinM,4) : '—'}${unitSuffix()} · ${tipTxt} · MATES PART ORIENTATION${dxfCheckNote(gp, gg)}${effWarn}`, 'ok');
       addFallbackLink(dl, fname);
       histRecord(which);
     } catch (e) { setStatus('ERROR: ' + e.message, 'err'); }
